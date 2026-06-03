@@ -463,6 +463,63 @@ function ForecastCard({
   );
 }
 
+type DayGridColumn = {
+  key: string;
+  leftPct: number;
+  widthPct: number;
+  isWeekend: boolean;
+};
+
+function startOfLocalDay(ms: number) {
+  const date = new Date(ms);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function buildDayGrid(startMs: number, endMs: number): DayGridColumn[] {
+  const spanMs = endMs - startMs;
+  if (spanMs <= 0) return [];
+
+  const columns: DayGridColumn[] = [];
+  let cursor = startOfLocalDay(startMs);
+  const lastDay = startOfLocalDay(endMs);
+
+  while (cursor <= lastDay) {
+    const date = new Date(cursor);
+    const dayOfWeek = date.getDay();
+    columns.push({
+      key: date.toISOString().slice(0, 10),
+      leftPct: ((cursor - startMs) / spanMs) * 100,
+      widthPct: (86400000 / spanMs) * 100,
+      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+    });
+    cursor += 86400000;
+  }
+
+  return columns;
+}
+
+function DayGridBackground({ days }: { days: DayGridColumn[] }) {
+  if (days.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden border-r border-zinc-300/70" aria-hidden>
+      {days.map((day) => (
+        <div
+          key={day.key}
+          className={`absolute top-0 bottom-0 border-l border-zinc-300/70 ${
+            day.isWeekend ? "bg-zinc-200/55" : ""
+          }`}
+          style={{
+            left: `${day.leftPct}%`,
+            width: `${day.widthPct}%`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function buildMonthTicks(startMs: number, endMs: number) {
   const ticks: { label: string; pct: number }[] = [];
   const cursor = new Date(startMs);
@@ -502,114 +559,131 @@ function SprintGanttChart({
     () => buildMonthTicks(startMs, endMs),
     [startMs, endMs],
   );
+  const dayGrid = useMemo(() => buildDayGrid(startMs, endMs), [startMs, endMs]);
+  const timelineRowSpan = sprints.length + 1;
 
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[640px]">
-        <div className="mb-2 grid grid-cols-[88px_1fr] gap-2 text-xs font-semibold text-zinc-500">
-          <span>Sprint</span>
-          <div className="relative h-10 border-b border-zinc-300 pb-1">
-            <span
-              className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700"
-            >
-              {formatDateShort(projectStartDate)}
-            </span>
-            <span
-              className="absolute bottom-0 right-0 whitespace-nowrap text-[10px] font-bold text-zinc-700"
-            >
-              {formatDateShort(estimatedEndDate)}
-            </span>
-            {monthTicks.map((tick) => (
-              <span
-                key={`${tick.label}-${tick.pct}`}
-                className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-400"
-                style={{ left: `${tick.pct}%` }}
-              >
-                {tick.label}
-              </span>
-            ))}
-          </div>
-        </div>
+        <div
+          className="grid gap-x-2 gap-y-1 text-xs font-semibold text-zinc-500"
+          style={{
+            gridTemplateColumns: "88px 1fr",
+            gridTemplateRows: `2.5rem repeat(${sprints.length}, 2.5rem)`,
+          }}
+        >
+          <span className="flex items-center" style={{ gridColumn: 1, gridRow: 1 }}>
+            Sprint
+          </span>
 
-        <div className="grid grid-cols-[88px_1fr] gap-2">
-          <div className="space-y-1">
-            {sprints.map((sprint) => (
-              <div key={sprint.sprint} className="flex h-10 flex-col justify-center pr-1">
-                <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
-                <p className="text-[10px] font-medium text-zinc-500">
-                  {sprint.total} tk · {sprint.projectedDurationDays}d
-                </p>
-              </div>
-            ))}
-          </div>
+          <div
+            className="relative"
+            style={{
+              gridColumn: 2,
+              gridRow: `1 / ${timelineRowSpan}`,
+            }}
+          >
+            <DayGridBackground days={dayGrid} />
 
-          <div className="relative space-y-1">
             <div
-              className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 -translate-x-1/2 bg-red-500"
+              className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 -translate-x-1/2 bg-red-500"
               style={{ left: `${todayPct}%` }}
               title="Hoje"
             />
             <span
-              className="pointer-events-none absolute -top-5 z-10 -translate-x-1/2 rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
+              className="pointer-events-none absolute top-0 z-20 -translate-x-1/2 rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
               style={{ left: `${todayPct}%` }}
             >
               Hoje
             </span>
 
-            {sprints.map((sprint, index) => {
-              const color = SPRINT_COLORS[index % SPRINT_COLORS.length];
-              const left = positionOnTimeline(
-                sprint.projectedStartDate,
-                startMs,
-                endMs,
-              );
-              const endPos = positionOnTimeline(
-                sprint.projectedEndDate,
-                startMs,
-                endMs,
-              );
-              const width = Math.max(0.8, endPos - left);
-              const isComplete = sprint.done === sprint.total;
-
-              return (
-                <div
-                  key={sprint.sprint}
-                  className="relative h-10 rounded-md border border-zinc-200 bg-zinc-50"
-                >
-                  <div
-                    className="absolute inset-y-1 flex overflow-hidden rounded shadow-sm"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      backgroundColor: color,
-                      minWidth: sprint.total > 0 ? "12px" : "6px",
-                    }}
-                    title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${sprint.total} tickets`}
+            <div className="relative z-10 flex h-full flex-col gap-1">
+              <div className="relative h-10 shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
+                <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
+                  {formatDateShort(projectStartDate)}
+                </span>
+                <span className="absolute bottom-0 right-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
+                  {formatDateShort(estimatedEndDate)}
+                </span>
+                {monthTicks.map((tick) => (
+                  <span
+                    key={`${tick.label}-${tick.pct}`}
+                    className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-400"
+                    style={{ left: `${tick.pct}%` }}
                   >
-                    {sprint.total > 0 ? (
-                      <>
-                        <TicketSegmentFill
-                          total={sprint.total}
-                          done={sprint.done}
-                          inProgress={sprint.inProgress}
-                          doneColor="rgba(0,0,0,0.35)"
-                          inProgressColor="rgba(255,255,255,0.45)"
-                          dividerClassName="border-white/35"
-                        />
-                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
-                          <span className="truncate text-[10px] font-bold text-white drop-shadow">
-                            {isComplete
-                              ? "Concluída"
-                              : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
-                          </span>
-                        </div>
-                      </>
-                    ) : null}
+                    {tick.label}
+                  </span>
+                ))}
+              </div>
+
+              {sprints.map((sprint, index) => {
+                const color = SPRINT_COLORS[index % SPRINT_COLORS.length];
+                const left = positionOnTimeline(
+                  sprint.projectedStartDate,
+                  startMs,
+                  endMs,
+                );
+                const endPos = positionOnTimeline(
+                  sprint.projectedEndDate,
+                  startMs,
+                  endMs,
+                );
+                const width = Math.max(0.8, endPos - left);
+                const isComplete = sprint.done === sprint.total;
+
+                return (
+                  <div
+                    key={sprint.sprint}
+                    className="relative h-10 rounded-md border border-zinc-200/90 bg-white/50"
+                  >
+                    <div
+                      className="absolute inset-y-1 z-10 flex overflow-hidden rounded shadow-sm"
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        backgroundColor: color,
+                        minWidth: sprint.total > 0 ? "12px" : "6px",
+                      }}
+                      title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${sprint.total} tickets`}
+                    >
+                      {sprint.total > 0 ? (
+                        <>
+                          <TicketSegmentFill
+                            total={sprint.total}
+                            done={sprint.done}
+                            inProgress={sprint.inProgress}
+                            doneColor="rgba(0,0,0,0.35)"
+                            inProgressColor="rgba(255,255,255,0.45)"
+                            dividerClassName="border-white/35"
+                          />
+                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                            <span className="truncate text-[10px] font-bold text-white drop-shadow">
+                              {isComplete
+                                ? "Concluída"
+                                : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
+                            </span>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
+
+          {sprints.map((sprint, index) => (
+            <div
+              key={`label-${sprint.sprint}`}
+              className="flex h-10 flex-col justify-center pr-1"
+              style={{ gridColumn: 1, gridRow: index + 2 }}
+            >
+              <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
+              <p className="text-[10px] font-medium text-zinc-500">
+                {sprint.total} tk · {sprint.projectedDurationDays}d
+              </p>
+            </div>
+          ))}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-4 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
