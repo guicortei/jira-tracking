@@ -12,6 +12,17 @@ export function hashStringToHexColor(input: string): string {
   return `#${value.toString(16).padStart(6, "0")}`;
 }
 
+/** Mistura a cor com branco; `whiteRatio` 0 = cor original, 1 = branco */
+export function tintHexColor(hex: string, whiteRatio: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  const amount = Math.max(0, Math.min(1, whiteRatio));
+  return rgbToHex(
+    mixChannel(r, 255, amount),
+    mixChannel(g, 255, amount),
+    mixChannel(b, 255, amount),
+  );
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const value = parseInt(hex.slice(1), 16);
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];

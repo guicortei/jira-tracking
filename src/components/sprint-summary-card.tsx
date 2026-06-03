@@ -2,10 +2,13 @@
 
 import { AssigneeBadge } from "@/components/assignee-badge";
 import { DualProgressBar } from "@/components/dual-progress-bar";
-import { StatusTimeline } from "@/components/status-timeline";
+import {
+  StatusTimeline,
+  normalizeStatus,
+} from "@/components/status-timeline";
 import type { SprintProjection } from "@/lib/jira/projection-types";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 function formatPct(value: number) {
   return `${Math.round(value * 100)}%`;
@@ -16,6 +19,32 @@ function formatDateShort(value: string) {
     day: "2-digit",
     month: "short",
   }).format(new Date(value));
+}
+
+function issueLeftBarStyle(
+  status: string,
+  sprintColor: string,
+): CSSProperties | null {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "FEITO") {
+    return { backgroundColor: sprintColor };
+  }
+
+  if (normalized !== "A FAZER") {
+    return {
+      backgroundColor: sprintColor,
+      backgroundImage: `repeating-linear-gradient(
+          -45deg,
+          rgba(255,255,255,0.4) 0,
+          rgba(255,255,255,0.4) 4px,
+          transparent 4px,
+          transparent 8px
+        )`,
+    };
+  }
+
+  return null;
 }
 
 function sprintStatusLabel(sprint: SprintProjection) {
@@ -128,11 +157,22 @@ export function SprintSummaryCard({
             <p className="py-2 text-xs text-zinc-500">Nenhum ticket nesta sprint.</p>
           ) : (
             <ul className="max-h-56 space-y-1 overflow-y-auto pr-0.5">
-              {sprintIssues.map((issue) => (
+              {sprintIssues.map((issue) => {
+                const leftBarStyle = issueLeftBarStyle(issue.status, color);
+
+                return (
                 <li
                   key={issue.id}
-                  className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1.5"
+                  className="flex overflow-hidden rounded border border-zinc-100 bg-zinc-50"
                 >
+                  {leftBarStyle ? (
+                    <div
+                      className="w-1 shrink-0 self-stretch"
+                      style={leftBarStyle}
+                      aria-hidden
+                    />
+                  ) : null}
+                  <div className="min-w-0 flex-1 px-2 py-1.5">
                   <div className="mb-1 flex items-start gap-1.5">
                     <a
                       href={`${project.siteUrl}/browse/${issue.key}`}
@@ -151,8 +191,10 @@ export function SprintSummaryCard({
                     ) : null}
                   </div>
                   <StatusTimeline status={issue.status} inline />
+                  </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
