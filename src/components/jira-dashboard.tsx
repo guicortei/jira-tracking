@@ -114,6 +114,9 @@ export function JiraDashboard() {
               <ProjectProjectionPanel
                 projectKey={selectedProject.key}
                 projectName={selectedProject.name}
+                project={selectedProject}
+                issues={issues}
+                issuesLoading={loadingIssues}
                 onBack={handleBack}
               />
               <IssueList

@@ -1,11 +1,21 @@
 "use client";
 
+import {
+  DualProgressBar,
+  TicketSegmentFill,
+  stripedGradient,
+} from "@/components/dual-progress-bar";
+import { SprintSummaryCard } from "@/components/sprint-summary-card";
 import type { ProjectProjection, SprintProjection } from "@/lib/jira/projection-types";
+import type { JiraIssue, JiraProject } from "@/lib/jira/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type ProjectProjectionPanelProps = {
   projectKey: string;
   projectName: string;
+  project: JiraProject;
+  issues: JiraIssue[];
+  issuesLoading?: boolean;
   onBack: () => void;
 };
 
@@ -41,84 +51,6 @@ function formatPct(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function stripedGradient(baseColor: string) {
-  return `repeating-linear-gradient(
-    -45deg,
-    ${baseColor},
-    ${baseColor} 6px,
-    color-mix(in srgb, ${baseColor} 55%, white) 6px,
-    color-mix(in srgb, ${baseColor} 55%, white) 12px
-  )`;
-}
-
-function DualProgressBar({
-  total,
-  done,
-  inProgress,
-  doneColor,
-  inProgressColor,
-  className = "h-2.5",
-}: {
-  total: number;
-  done: number;
-  inProgress: number;
-  doneColor: string;
-  inProgressColor: string;
-  className?: string;
-}) {
-  if (total <= 0) {
-    return <div className={`rounded-full bg-zinc-300 ${className}`} />;
-  }
-
-  const donePct = (done / total) * 100;
-  const inProgressPct = (inProgress / total) * 100;
-
-  return (
-    <div
-      className={`flex overflow-hidden rounded-full bg-zinc-300 ${className}`}
-      role="progressbar"
-      aria-valuenow={done + inProgress}
-      aria-valuemin={0}
-      aria-valuemax={total}
-    >
-      {donePct > 0 && (
-        <div
-          className="h-full shrink-0 transition-all"
-          style={{ width: `${donePct}%`, backgroundColor: doneColor }}
-          title={`${done} concluídos`}
-        />
-      )}
-      {inProgressPct > 0 && (
-        <div
-          className="h-full shrink-0 transition-all"
-          style={{
-            width: `${inProgressPct}%`,
-            backgroundColor: inProgressColor,
-            backgroundImage: stripedGradient(inProgressColor),
-          }}
-          title={`${inProgress} em andamento`}
-        />
-      )}
-    </div>
-  );
-}
-
-function sprintStatusLabel(sprint: SprintProjection) {
-  const now = Date.now();
-  const start = dateToMs(sprint.projectedStartDate);
-  const end = dateToMs(sprint.projectedEndDate);
-
-  if (sprint.done === sprint.total) return "Concluída";
-  if (now < start) return "Prevista";
-  if (now >= end && sprint.done < sprint.total) return "Atrasada";
-  if (now >= start) return "Em execução";
-  return "Prevista";
-}
-
-function sprintBreakdown(sprint: SprintProjection) {
-  return `${sprint.done} feitos · ${sprint.inProgress} em andamento · ${sprint.notStarted} a fazer`;
-}
-
 function dateToMs(value: string) {
   return new Date(value).getTime();
 }
@@ -134,6 +66,9 @@ function positionOnTimeline(date: string, startMs: number, endMs: number) {
 export function ProjectProjectionPanel({
   projectKey,
   projectName,
+  project,
+  issues,
+  issuesLoading = false,
   onBack,
 }: ProjectProjectionPanelProps) {
   const [projection, setProjection] = useState<ProjectProjection | null>(null);
@@ -167,13 +102,11 @@ export function ProjectProjectionPanel({
   const timelineRange = useMemo(() => {
     if (!projection) return null;
     const startMs = dateToMs(projection.timeline.projectStartDate);
-    const endMs = Math.max(
-      dateToMs(projection.timeline.pessimisticEndDate),
-      dateToMs(projection.timeline.estimatedEndDate),
-      Date.now(),
-    );
-    const padding = 86400000 * 7;
-    return { startMs: startMs - padding, endMs: endMs + padding };
+    let endMs = dateToMs(projection.timeline.estimatedEndDate);
+    if (endMs <= startMs) {
+      endMs = startMs + 86400000;
+    }
+    return { startMs, endMs };
   }, [projection]);
 
   const activeSprints = useMemo(() => {
@@ -182,6 +115,17 @@ export function ProjectProjectionPanel({
       (s) => s.unlocked && s.done < s.total,
     ).length;
   }, [projection]);
+
+  const issuesBySprint = useMemo(() => {
+    const map = new Map<number, JiraIssue[]>();
+    for (const issue of issues) {
+      if (issue.sprint === null) continue;
+      const list = map.get(issue.sprint) ?? [];
+      list.push(issue);
+      map.set(issue.sprint, list);
+    }
+    return map;
+  }, [issues]);
 
   useEffect(() => {
     const column = metricsColumnRef.current;
@@ -396,14 +340,18 @@ export function ProjectProjectionPanel({
               <code className="text-xs">_sprint</code>.
             </p>
             <p className="mb-4 shrink-0 text-xs text-zinc-500">
-            Barra sólida = concluído · listras = em andamento (não inclui &quot;A Fazer&quot;).
+              Clique na sprint para ver os tickets. Barra sólida = concluído · listras =
+              em andamento.
             </p>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
               {projection.sprints.map((sprint, index) => (
-                <SprintCard
+                <SprintSummaryCard
                   key={sprint.sprint}
                   sprint={sprint}
                   color={SPRINT_COLORS[index % SPRINT_COLORS.length]}
+                  issues={issuesBySprint.get(sprint.sprint) ?? []}
+                  project={project}
+                  issuesLoading={issuesLoading}
                 />
               ))}
             </div>
@@ -560,11 +508,21 @@ function SprintGanttChart({
       <div className="min-w-[640px]">
         <div className="mb-2 grid grid-cols-[88px_1fr] gap-2 text-xs font-semibold text-zinc-500">
           <span>Sprint</span>
-          <div className="relative h-8 border-b border-zinc-300">
+          <div className="relative h-10 border-b border-zinc-300 pb-1">
+            <span
+              className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700"
+            >
+              {formatDateShort(projectStartDate)}
+            </span>
+            <span
+              className="absolute bottom-0 right-0 whitespace-nowrap text-[10px] font-bold text-zinc-700"
+            >
+              {formatDateShort(estimatedEndDate)}
+            </span>
             {monthTicks.map((tick) => (
               <span
                 key={`${tick.label}-${tick.pct}`}
-                className="absolute -translate-x-1/2 whitespace-nowrap"
+                className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-400"
                 style={{ left: `${tick.pct}%` }}
               >
                 {tick.label}
@@ -619,45 +577,34 @@ function SprintGanttChart({
                   className="relative h-10 rounded-md border border-zinc-200 bg-zinc-50"
                 >
                   <div
-                    className="absolute inset-y-1 overflow-hidden rounded shadow-sm"
+                    className="absolute inset-y-1 flex overflow-hidden rounded shadow-sm"
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
                       backgroundColor: color,
-                      minWidth: "6px",
+                      minWidth: sprint.total > 0 ? "12px" : "6px",
                     }}
-                    title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)}`}
+                    title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${sprint.total} tickets`}
                   >
-                    <div className="absolute inset-0 flex overflow-hidden">
-                      {sprint.total > 0 && sprint.done > 0 && (
-                        <div
-                          className="h-full bg-black/35"
-                          style={{ width: `${(sprint.done / sprint.total) * 100}%` }}
+                    {sprint.total > 0 ? (
+                      <>
+                        <TicketSegmentFill
+                          total={sprint.total}
+                          done={sprint.done}
+                          inProgress={sprint.inProgress}
+                          doneColor="rgba(0,0,0,0.35)"
+                          inProgressColor="rgba(255,255,255,0.45)"
+                          dividerClassName="border-white/35"
                         />
-                      )}
-                      {sprint.total > 0 && sprint.inProgress > 0 && (
-                        <div
-                          className="h-full"
-                          style={{
-                            width: `${(sprint.inProgress / sprint.total) * 100}%`,
-                            backgroundImage: `repeating-linear-gradient(
-                              -45deg,
-                              rgba(255,255,255,0.55) 0,
-                              rgba(255,255,255,0.55) 5px,
-                              rgba(255,255,255,0.2) 5px,
-                              rgba(255,255,255,0.2) 10px
-                            )`,
-                          }}
-                        />
-                      )}
-                    </div>
-                    <div className="absolute inset-0 flex items-center justify-center px-1">
-                      <span className="truncate text-[10px] font-bold text-white drop-shadow">
-                        {isComplete
-                          ? "Concluída"
-                          : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
-                      </span>
-                    </div>
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                          <span className="truncate text-[10px] font-bold text-white drop-shadow">
+                            {isComplete
+                              ? "Concluída"
+                              : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
+                          </span>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -679,99 +626,6 @@ function SprintGanttChart({
           </span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SprintCard({
-  sprint,
-  color,
-}: {
-  sprint: SprintProjection;
-  color: string;
-}) {
-  const isComplete = sprint.done === sprint.total;
-
-  return (
-    <div className="rounded-xl border-2 border-zinc-200 bg-zinc-50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-black text-white"
-            style={{ backgroundColor: color }}
-          >
-            S{sprint.sprint}
-          </div>
-          <div>
-            <p className="text-sm font-bold text-zinc-900">Sprint {sprint.sprint}</p>
-            <p className="text-xs font-medium text-zinc-600">
-              {sprint.done} de {sprint.total} concluídos ({formatPct(sprint.completionPct)})
-            </p>
-          </div>
-        </div>
-        <span
-          className="rounded-full px-2.5 py-1 text-xs font-bold text-white"
-          style={{
-            backgroundColor: isComplete
-              ? "#2563eb"
-              : sprint.unlocked
-                ? "#059669"
-                : "#71717a",
-          }}
-        >
-          {sprintStatusLabel(sprint)}
-        </span>
-      </div>
-
-      <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-        <span>Progresso real</span>
-        <span>{sprint.done}/{sprint.total}</span>
-      </div>
-      <DualProgressBar
-        total={sprint.total}
-        done={sprint.done}
-        inProgress={sprint.inProgress}
-        doneColor={color}
-        inProgressColor={color}
-        className="mb-3 h-2.5"
-      />
-
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <MiniStat label="Feitos" value={sprint.done} />
-        <MiniStat label="Em andamento" value={sprint.inProgress} />
-        <MiniStat label="A fazer" value={sprint.notStarted} />
-      </div>
-
-      <p className="mt-3 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700">
-        {isComplete ? (
-          <>
-            Bloco projetado:{" "}
-            <span className="font-bold text-zinc-900">
-              {formatDateShort(sprint.projectedStartDate)} –{" "}
-              {formatDateShort(sprint.projectedEndDate)}
-            </span>
-          </>
-        ) : (
-          <>
-            Previsão:{" "}
-            <span className="font-bold text-zinc-900">
-              {formatDateShort(sprint.projectedStartDate)} →{" "}
-              {formatDateShort(sprint.projectedEndDate)}
-            </span>
-            {" · "}
-            {sprint.projectedDurationDays} dias ({sprint.total} tickets ÷ velocidade)
-          </>
-        )}
-      </p>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-1 py-1.5">
-      <p className="text-base font-black text-zinc-900">{value}</p>
-      <p className="text-[10px] font-semibold uppercase text-zinc-500">{label}</p>
     </div>
   );
 }

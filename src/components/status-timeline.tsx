@@ -15,11 +15,98 @@ export function normalizeStatus(status: string) {
     .trim();
 }
 
+export function getStatusSortValue(status: string) {
+  const normalized = normalizeStatus(status);
+  if (normalized === "BLOQUEADO") return WORKFLOW.length;
+  const index = WORKFLOW.findIndex((step) => step.key === normalized);
+  return index === -1 ? WORKFLOW.length + 1 : index;
+}
+
 type StatusTimelineProps = {
   status: string;
+  compact?: boolean;
+  /** Uma linha só: trilha + status, para listas densas */
+  inline?: boolean;
 };
 
-export function StatusTimeline({ status }: StatusTimelineProps) {
+function TimelineTrack({
+  status,
+  dotSize,
+  lineHeight,
+  blockedDotSize,
+}: {
+  status: string;
+  dotSize: { current: number; other: number };
+  lineHeight: number;
+  blockedDotSize: number;
+}) {
+  const normalized = normalizeStatus(status);
+  const isBlocked = normalized === "BLOQUEADO";
+  const currentIndex = WORKFLOW.findIndex((step) => step.key === normalized);
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center">
+      {WORKFLOW.map((step, index) => {
+        const isDone = !isBlocked && currentIndex > index;
+        const isCurrent = !isBlocked && currentIndex === index;
+        const isUpcoming = isBlocked || currentIndex < index;
+        const lineDone = !isBlocked && currentIndex > index;
+        const size = isCurrent ? dotSize.current : dotSize.other;
+
+        return (
+          <div key={step.key} className="flex flex-1 items-center last:flex-none">
+            <div
+              title={step.label}
+              className="relative z-10 shrink-0 rounded-full"
+              style={{
+                width: size,
+                height: size,
+                backgroundColor: isDone || isCurrent ? step.color : "#e4e4e7",
+                boxShadow: isCurrent
+                  ? `0 0 0 2px white, 0 0 0 3px ${step.color}55`
+                  : undefined,
+                opacity: isBlocked && isUpcoming ? 0.35 : 1,
+              }}
+            />
+            {index < WORKFLOW.length - 1 && (
+              <div
+                className="mx-px min-w-[4px] flex-1 rounded-full"
+                style={{
+                  height: lineHeight,
+                  backgroundColor: lineDone ? step.color : "#e4e4e7",
+                  opacity: isBlocked ? 0.35 : 1,
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+      {isBlocked && (
+        <>
+          <div
+            className="mx-px h-[2px] w-2 shrink-0 rounded-full bg-red-300"
+            aria-hidden
+          />
+          <div
+            title="Bloqueado"
+            className="shrink-0 rounded-full bg-red-500"
+            style={{
+              width: blockedDotSize,
+              height: blockedDotSize,
+              boxShadow: "0 0 0 2px white, 0 0 0 3px #ef444455",
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+export function StatusTimeline({
+  status,
+  compact = false,
+  inline = false,
+}: StatusTimelineProps) {
   const normalized = normalizeStatus(status);
   const isBlocked = normalized === "BLOQUEADO";
   const currentIndex = WORKFLOW.findIndex((step) => step.key === normalized);
@@ -28,69 +115,56 @@ export function StatusTimeline({ status }: StatusTimelineProps) {
   const accent = isBlocked ? "#ef4444" : activeStep?.color ?? "#a1a1aa";
   const accentLight = isBlocked ? "#fef2f2" : activeStep?.light ?? "#f4f4f5";
 
+  if (inline) {
+    return (
+      <div
+        className="flex w-full min-w-0 items-center gap-1.5"
+        title={status}
+      >
+        <TimelineTrack
+          status={status}
+          dotSize={{ current: 8, other: 5 }}
+          lineHeight={2}
+          blockedDotSize={8}
+        />
+        <span
+          className="max-w-[38%] shrink-0 truncate rounded px-1.5 py-0.5 text-[9px] font-semibold leading-none"
+          style={{
+            backgroundColor: accentLight,
+            color: accent,
+            border: `1px solid ${accent}33`,
+          }}
+        >
+          {isBlocked ? "Bloqueado" : activeStep?.label ?? status}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="inline-flex w-[290px] flex-col gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 shadow-sm"
+      className={
+        compact
+          ? "inline-flex w-[248px] flex-col gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1.5 shadow-sm"
+          : "inline-flex w-[290px] flex-col gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 shadow-sm"
+      }
       title={status}
     >
-      <div className="flex w-full items-center">
-        {WORKFLOW.map((step, index) => {
-          const isDone = !isBlocked && currentIndex > index;
-          const isCurrent = !isBlocked && currentIndex === index;
-          const isUpcoming = isBlocked || currentIndex < index;
-          const lineDone = !isBlocked && currentIndex > index;
-
-          return (
-            <div key={step.key} className="flex flex-1 items-center last:flex-none">
-              <div
-                title={step.label}
-                className="relative z-10 shrink-0 rounded-full transition-all"
-                style={{
-                  width: isCurrent ? 14 : 10,
-                  height: isCurrent ? 14 : 10,
-                  backgroundColor: isDone || isCurrent ? step.color : "#e4e4e7",
-                  boxShadow: isCurrent
-                    ? `0 0 0 3px white, 0 0 0 5px ${step.color}55`
-                    : undefined,
-                  opacity: isBlocked && isUpcoming ? 0.35 : 1,
-                }}
-              />
-
-              {index < WORKFLOW.length - 1 && (
-                <div
-                  className="mx-0.5 h-[3px] min-w-[10px] flex-1 rounded-full"
-                  style={{
-                    backgroundColor: lineDone ? step.color : "#e4e4e7",
-                    opacity: isBlocked ? 0.35 : 1,
-                  }}
-                />
-              )}
-            </div>
-          );
-        })}
-
-        {isBlocked && (
-          <>
-            <div
-              className="mx-0.5 h-[3px] w-3 shrink-0 rounded-full bg-red-300"
-              aria-hidden="true"
-            />
-            <div
-              title="Bloqueado"
-              className="relative z-10 shrink-0 rounded-full bg-red-500"
-              style={{
-                width: 14,
-                height: 14,
-                boxShadow: "0 0 0 3px white, 0 0 0 5px #ef444455",
-              }}
-            />
-          </>
-        )}
-      </div>
+      <TimelineTrack
+        status={status}
+        dotSize={{
+          current: compact ? 12 : 14,
+          other: compact ? 8 : 10,
+        }}
+        lineHeight={3}
+        blockedDotSize={compact ? 12 : 14}
+      />
 
       <div className="flex justify-center">
         <span
-          className="inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+          className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-full font-semibold ${
+            compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-0.5 text-[11px]"
+          }`}
           style={{
             backgroundColor: accentLight,
             color: accent,

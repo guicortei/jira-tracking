@@ -1,6 +1,10 @@
 "use client";
 
-import { StatusTimeline, WORKFLOW, normalizeStatus } from "@/components/status-timeline";
+import { AssigneeBadge } from "@/components/assignee-badge";
+import {
+  StatusTimeline,
+  getStatusSortValue,
+} from "@/components/status-timeline";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
 import { useMemo, useState } from "react";
 
@@ -30,7 +34,7 @@ type SortDirection = "asc" | "desc";
 const columns: { key: SortKey; label: string; className?: string }[] = [
   { key: "key", label: "Ticket" },
   { key: "summary", label: "Resumo" },
-  { key: "status", label: "Andamento", className: "min-w-[310px]" },
+  { key: "status", label: "Andamento", className: "min-w-[240px]" },
   { key: "issueType", label: "Tipo" },
   { key: "assignee", label: "Responsável" },
   { key: "sprint", label: "_sprint" },
@@ -75,13 +79,6 @@ function compareValues(
   }
 
   return direction === "asc" ? result : -result;
-}
-
-function getStatusSortValue(status: string) {
-  const normalized = normalizeStatus(status);
-  if (normalized === "BLOQUEADO") return WORKFLOW.length;
-  const index = WORKFLOW.findIndex((step) => step.key === normalized);
-  return index === -1 ? WORKFLOW.length + 1 : index;
 }
 
 function getSortValue(issue: JiraIssue, key: SortKey) {
@@ -133,14 +130,14 @@ function SortableHeader({
   const isActive = activeKey === sortKey;
 
   return (
-    <th className={`px-4 py-3 font-medium ${className ?? ""}`}>
+    <th className={`px-3 py-2 text-xs font-medium ${className ?? ""}`}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
         className="inline-flex items-center gap-1 hover:text-zinc-900"
       >
         {label}
-        <span className="text-xs text-zinc-400">
+        <span className="text-[10px] text-zinc-400">
           {isActive ? (direction === "asc" ? "↑" : "↓") : "↕"}
         </span>
       </button>
@@ -234,7 +231,7 @@ export function IssueList({
       ) : (
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="min-w-full text-left text-xs">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
                 <tr>
                   {columns.map((column) => (
@@ -253,7 +250,7 @@ export function IssueList({
               <tbody className="divide-y divide-zinc-100">
                 {sortedIssues.map((issue) => (
                   <tr key={issue.id} className="hover:bg-zinc-50">
-                    <td className="px-4 py-3 font-medium text-blue-600">
+                    <td className="px-3 py-2 font-medium text-blue-600">
                       <a
                         href={`${project.siteUrl}/browse/${issue.key}`}
                         target="_blank"
@@ -263,42 +260,49 @@ export function IssueList({
                         {issue.key}
                       </a>
                     </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-zinc-900">
+                    <td className="max-w-xs truncate px-3 py-2 text-zinc-900">
                       {issue.summary}
                     </td>
-                    <td className="min-w-[310px] whitespace-nowrap px-3 py-3 align-middle">
-                      <StatusTimeline status={issue.status} />
+                    <td className="min-w-[240px] px-3 py-2 align-middle">
+                      <StatusTimeline status={issue.status} inline />
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">{issue.issueType}</td>
-                    <td className="px-4 py-3 text-zinc-600">
-                      {issue.assignee ?? "—"}
+                    <td className="px-3 py-2 text-zinc-600">{issue.issueType}</td>
+                    <td className="px-3 py-2">
+                      {issue.assignee ? (
+                        <AssigneeBadge
+                          name={issue.assignee}
+                          className="px-1 py-0.5 text-[9px]"
+                        />
+                      ) : (
+                        <span className="text-zinc-500">—</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">
+                    <td className="px-3 py-2 text-zinc-600">
                       {issue.sprint ?? "—"}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
+                    <td className="whitespace-nowrap px-3 py-2 text-zinc-500">
                       {issue.workStartedAt
                         ? formatDateOnly(issue.workStartedAt)
                         : "—"}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
+                    <td className="whitespace-nowrap px-3 py-2 text-zinc-500">
                       {issue.resolutionDate
                         ? formatDateOnly(issue.resolutionDate)
                         : "—"}
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">
+                    <td className="px-3 py-2 text-zinc-600">
                       {issue.daysCycleTime !== null
                         ? `${issue.daysCycleTime} dia${issue.daysCycleTime === 1 ? "" : "s"}`
                         : issue.daysInProgress !== null
                           ? `${issue.daysInProgress} dia${issue.daysInProgress === 1 ? "" : "s"}*`
                           : "—"}
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">
+                    <td className="px-3 py-2 text-zinc-600">
                       {issue.daysToResolve !== null
                         ? `${issue.daysToResolve} dia${issue.daysToResolve === 1 ? "" : "s"}`
                         : "—"}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
+                    <td className="whitespace-nowrap px-3 py-2 text-zinc-500">
                       {formatDate(issue.updated)}
                     </td>
                   </tr>
