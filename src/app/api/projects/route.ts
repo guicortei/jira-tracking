@@ -1,6 +1,8 @@
 import { listProjects } from "@/lib/jira/client";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const projects = await listProjects();

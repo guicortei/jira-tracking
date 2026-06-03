@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Jira Tracking
 
-## Getting Started
+Dashboard Next.js para listar projetos e tickets do Jira Cloud, com projeção de entrega para o projeto Checkout TechTeam (CT).
 
-First, run the development server:
+## Variáveis de ambiente
+
+Copie `.env.example` para `.env` localmente. Na Vercel, configure em **Project → Settings → Environment Variables**:
+
+| Variável | Descrição |
+|----------|-----------|
+| `JIRA_EMAIL` | E-mail da conta Atlassian |
+| `JIRA_API_KEY` | API token ([id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)) |
+| `JIRA_DOMAIN` | Domínio do site, ex: `flowborder.atlassian.net` |
+
+## Desenvolvimento local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy na Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Importe o repositório em [vercel.com/new](https://vercel.com/new).
+2. Framework: **Next.js** (detectado automaticamente).
+3. Adicione as três variáveis de ambiente acima (Production, Preview e Development).
+4. Deploy.
 
-## Learn More
+Comandos de build padrão (não é preciso alterar):
 
-To learn more about Next.js, take a look at the following resources:
+- **Build Command:** `npm run build`
+- **Output:** gerenciado pelo Next.js
+- **Install Command:** `npm install`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+As rotas `/api/projects/*` usam `maxDuration` de 60s porque buscam changelog do Jira em lote. No plano Hobby o limite da Vercel é 60s; em projetos com muitos tickets, use plano Pro se precisar de mais tempo.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run dev    # desenvolvimento
+npm run build  # build de produção
+npm run start  # servidor após build
+npm run lint   # ESLint
+```
