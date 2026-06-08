@@ -130,11 +130,11 @@ export function ProjectProjectionPanel({
   );
 
   const activeSprints = useMemo(() => {
-    if (!ticketProjection) return 0;
-    return ticketProjection.sprints.filter(
+    if (!storyPointsProjection) return 0;
+    return storyPointsProjection.sprints.filter(
       (s) => s.unlocked && s.done < s.total,
     ).length;
-  }, [ticketProjection]);
+  }, [storyPointsProjection]);
 
   const issuesBySprint = useMemo(() => {
     const map = new Map<number, JiraIssue[]>();
@@ -177,7 +177,7 @@ export function ProjectProjectionPanel({
       observer.disconnect();
       window.removeEventListener("resize", runSync);
     };
-  }, [ticketProjection, loading]);
+  }, [storyPointsProjection, loading]);
 
   if (loading) {
     return (
@@ -209,9 +209,11 @@ export function ProjectProjectionPanel({
     return null;
   }
 
-  const { startMs, endMs } = ticketTimelineRange;
-  const storyPointsRange = storyPointsTimelineRange;
-  const overallInProgress = ticketProjection.sprints.reduce(
+  const projection = storyPointsProjection;
+  const altProjection = ticketProjection;
+  const { startMs, endMs } = storyPointsTimelineRange;
+  const altTimelineRange = ticketTimelineRange;
+  const overallInProgress = projection.sprints.reduce(
     (acc, sprint) => acc + sprint.inProgress,
     0,
   );
@@ -238,17 +240,16 @@ export function ProjectProjectionPanel({
 
             <div className="min-w-[240px] rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-6 py-4 text-white shadow-lg">
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-100">
-                Entrega estimada (tickets)
+                Entrega estimada (story points)
               </p>
               <p className="mt-1 text-2xl font-black leading-tight">
-                {formatDateLong(ticketProjection.projection.estimatedDate)}
+                {formatDateLong(projection.projection.estimatedDate)}
               </p>
               <p className="mt-2 text-sm font-semibold text-emerald-100">
-                Faltam {ticketProjection.projection.remainingDays} dias
+                Faltam {projection.projection.remainingDays} dias
               </p>
               <p className="mt-3 border-t border-emerald-500/50 pt-3 text-xs font-semibold text-emerald-100">
-                Por story points:{" "}
-                {formatDateLong(storyPointsProjection.projection.estimatedDate)}
+                Por tickets: {formatDateLong(altProjection.projection.estimatedDate)}
               </p>
             </div>
           </div>
@@ -257,13 +258,13 @@ export function ProjectProjectionPanel({
             <div className="mb-2 flex items-center justify-between text-sm font-semibold">
               <span>Progresso geral do projeto</span>
               <span className="text-blue-700">
-                {ticketProjection.overall.done}/{ticketProjection.overall.total} (
-                {formatPct(ticketProjection.overall.completionPct)})
+                {projection.overall.donePoints}/{projection.overall.totalPoints} pts (
+                {formatPct(projection.overall.completionPctPoints)})
               </span>
             </div>
             <DualProgressBar
-              total={ticketProjection.overall.total}
-              done={ticketProjection.overall.done}
+              total={projection.overall.total}
+              done={projection.overall.done}
               inProgress={overallInProgress}
               doneColor="#2563eb"
               inProgressColor="#60a5fa"
@@ -290,29 +291,29 @@ export function ProjectProjectionPanel({
           <div className="grid gap-4 sm:grid-cols-2">
             <KpiCard
               label="Progresso"
-              value={formatPct(ticketProjection.overall.completionPct)}
-              detail={`${ticketProjection.overall.done} concluídos · ${ticketProjection.overall.open} abertos · ${ticketProjection.overall.donePoints}/${ticketProjection.overall.totalPoints} pts`}
+              value={formatPct(projection.overall.completionPctPoints)}
+              detail={`${projection.overall.donePoints}/${projection.overall.totalPoints} pts · ${projection.overall.done} tickets concluídos`}
               borderColor="#2563eb"
               bgColor="#eff6ff"
             />
             <KpiCard
               label="Velocidade"
-              value={`${ticketProjection.velocity.throughputPerDay} tk/dia`}
-              detail={`${storyPointsProjection.velocity.throughputPerDay} pts/dia · mediana ${ticketProjection.velocity.medianCycleDays}d (cycle time)`}
+              value={`${projection.velocity.throughputPerDay} pts/dia`}
+              detail={`${altProjection.velocity.throughputPerDay} tk/dia · mediana ${projection.velocity.medianCycleDays}d (cycle time)`}
               borderColor="#7c3aed"
               bgColor="#f5f3ff"
             />
             <KpiCard
               label="Sprints ativas"
               value={String(activeSprints)}
-              detail={`de ${ticketProjection.sprints.length} sprints no total`}
+              detail={`de ${projection.sprints.length} sprints no total`}
               borderColor="#d97706"
               bgColor="#fffbeb"
             />
             <KpiCard
               label="Base da estimativa"
-              value={String(ticketProjection.velocity.sampleSize)}
-              detail={`${storyPointsProjection.velocity.pointsDelivered ?? 0} pts em ${ticketProjection.velocity.windowDays} dia(s)`}
+              value={String(projection.velocity.sampleSize)}
+              detail={`${projection.velocity.pointsDelivered ?? 0} pts entregues em ${projection.velocity.windowDays} dia(s)`}
               borderColor="#0891b2"
               bgColor="#ecfeff"
             />
@@ -321,28 +322,28 @@ export function ProjectProjectionPanel({
           <section className="rounded-2xl border-2 border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-bold text-zinc-900">Faixa de previsão</h2>
             <p className="mb-4 text-sm text-zinc-600">
-              Cenários com velocidade ±25% em relação à média atual
+              Cenários em story points com velocidade ±25% em relação à média atual
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <ForecastCard
                 label="Otimista"
-                date={formatDateLong(ticketProjection.projection.optimisticDate)}
-                sub={formatDateShort(ticketProjection.projection.optimisticDate)}
+                date={formatDateLong(projection.projection.optimisticDate)}
+                sub={formatDateShort(projection.projection.optimisticDate)}
                 color="#059669"
                 bg="#ecfdf5"
               />
               <ForecastCard
                 label="Estimado"
-                date={formatDateLong(ticketProjection.projection.estimatedDate)}
-                sub={`${ticketProjection.projection.remainingDays} dias restantes`}
+                date={formatDateLong(projection.projection.estimatedDate)}
+                sub={`${projection.projection.remainingDays} dias restantes`}
                 color="#1d4ed8"
                 bg="#dbeafe"
                 highlight
               />
               <ForecastCard
                 label="Pessimista"
-                date={formatDateLong(ticketProjection.projection.pessimisticDate)}
-                sub={formatDateShort(ticketProjection.projection.pessimisticDate)}
+                date={formatDateLong(projection.projection.pessimisticDate)}
+                sub={formatDateShort(projection.projection.pessimisticDate)}
                 color="#b45309"
                 bg="#fef3c7"
               />
@@ -376,7 +377,7 @@ export function ProjectProjectionPanel({
               em andamento.
             </p>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
-              {ticketProjection.sprints.map((sprint, index) => (
+              {projection.sprints.map((sprint, index) => (
                 <SprintSummaryCard
                   key={sprint.sprint}
                   sprint={sprint}
@@ -392,58 +393,60 @@ export function ProjectProjectionPanel({
       </div>
 
       {/* Cronograma — largura total */}
-      <section className="w-full rounded-2xl border-2 border-zinc-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-bold text-zinc-900">
-          Cronograma por sprint — velocidade em tickets
-        </h2>
-        <p className="mb-1 text-sm text-zinc-600">
-          Gantt sequencial: início em{" "}
-          <strong className="font-semibold">
-            {formatDateShort(ticketProjection.timeline.projectStartDate)}
-          </strong>
-          , velocidade de {ticketProjection.velocity.throughputPerDay} tickets/dia. Cada sprint só
-          começa quando a anterior termina.
-        </p>
-        <p className="mb-4 text-xs text-zinc-500">
-          Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
-        </p>
-
-        <SprintGanttChart
-          sprints={ticketProjection.sprints}
-          unit="tickets"
-          velocityPerDay={ticketProjection.velocity.throughputPerDay}
-          projectStartDate={ticketProjection.timeline.projectStartDate}
-          estimatedEndDate={ticketProjection.timeline.estimatedEndDate}
-          startMs={startMs}
-          endMs={endMs}
-        />
-      </section>
-
       <section className="w-full rounded-2xl border-2 border-violet-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-bold text-zinc-900">
           Cronograma por sprint — velocidade em story points
         </h2>
         <p className="mb-1 text-sm text-zinc-600">
-          Mesma lógica sequencial, mas a duração de cada sprint usa a soma de{" "}
-          <strong className="font-semibold">Story point estimate</strong> ÷ velocidade em pontos/dia
-          ({storyPointsProjection.velocity.throughputPerDay} pts/dia com base em{" "}
-          {storyPointsProjection.velocity.pointsDelivered ?? 0} pts já entregues).
+          Gantt sequencial: início em{" "}
+          <strong className="font-semibold">
+            {formatDateShort(projection.timeline.projectStartDate)}
+          </strong>
+          , velocidade de {projection.velocity.throughputPerDay} pts/dia (
+          {projection.velocity.pointsDelivered ?? 0} pts já entregues). Cada sprint só começa quando
+          a anterior termina.
         </p>
         <p className="mb-4 text-xs text-zinc-500">
-          Término estimado: {formatDateLong(storyPointsProjection.projection.estimatedDate)} ·
-          barra ainda segmentada por ticket (progresso real)
+          Barra segmentada por ticket (progresso real) · linha vermelha = hoje
         </p>
 
         <SprintGanttChart
-          sprints={storyPointsProjection.sprints}
+          sprints={projection.sprints}
           unit="storyPoints"
-          velocityPerDay={storyPointsProjection.velocity.throughputPerDay}
-          projectStartDate={storyPointsProjection.timeline.projectStartDate}
-          estimatedEndDate={storyPointsProjection.timeline.estimatedEndDate}
-          startMs={storyPointsRange.startMs}
-          endMs={storyPointsRange.endMs}
+          velocityPerDay={projection.velocity.throughputPerDay}
+          projectStartDate={projection.timeline.projectStartDate}
+          estimatedEndDate={projection.timeline.estimatedEndDate}
+          startMs={startMs}
+          endMs={endMs}
         />
       </section>
+
+      <details className="w-full rounded-2xl border-2 border-zinc-200 bg-white shadow-sm">
+        <summary className="cursor-pointer list-none px-5 py-4 [&::-webkit-details-marker]:hidden">
+          <span className="text-base font-bold text-zinc-900">
+            Cronograma por sprint — velocidade em tickets ▸
+          </span>
+          <span className="mt-1 block text-sm font-normal text-zinc-600">
+            Cenário alternativo ({altProjection.velocity.throughputPerDay} tickets/dia) ·
+            término {formatDateShort(altProjection.projection.estimatedDate)}
+          </span>
+        </summary>
+        <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
+          <p className="mb-4 text-xs text-zinc-500">
+            Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+          </p>
+
+          <SprintGanttChart
+            sprints={altProjection.sprints}
+            unit="tickets"
+            velocityPerDay={altProjection.velocity.throughputPerDay}
+            projectStartDate={altProjection.timeline.projectStartDate}
+            estimatedEndDate={altProjection.timeline.estimatedEndDate}
+            startMs={altTimelineRange.startMs}
+            endMs={altTimelineRange.endMs}
+          />
+        </div>
+      </details>
 
       <details className="rounded-2xl border-2 border-zinc-200 bg-zinc-50">
         <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-zinc-800">
@@ -451,18 +454,18 @@ export function ProjectProjectionPanel({
         </summary>
         <div className="space-y-4 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
           <div>
-            <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
+            <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points (padrão)</h3>
             <ul className="space-y-2">
-              {ticketProjection.assumptions.map((item) => (
-                <li key={`tk-${item}`}>• {item}</li>
+              {projection.assumptions.map((item) => (
+                <li key={`sp-${item}`}>• {item}</li>
               ))}
             </ul>
           </div>
           <div>
-            <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points</h3>
+            <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
             <ul className="space-y-2">
-              {storyPointsProjection.assumptions.map((item) => (
-                <li key={`sp-${item}`}>• {item}</li>
+              {altProjection.assumptions.map((item) => (
+                <li key={`tk-${item}`}>• {item}</li>
               ))}
             </ul>
           </div>

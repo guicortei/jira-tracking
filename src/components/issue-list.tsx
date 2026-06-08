@@ -23,6 +23,7 @@ type SortKey =
   | "issueType"
   | "assignee"
   | "sprint"
+  | "storyPoints"
   | "workStartedAt"
   | "resolutionDate"
   | "daysCycleTime"
@@ -38,6 +39,7 @@ const columns: { key: SortKey; label: string; className?: string }[] = [
   { key: "issueType", label: "Tipo" },
   { key: "assignee", label: "Responsável" },
   { key: "sprint", label: "_sprint" },
+  { key: "storyPoints", label: "Points" },
   { key: "workStartedAt", label: "Início trabalho" },
   { key: "resolutionDate", label: "Conclusão" },
   { key: "daysCycleTime", label: "Cycle time" },
@@ -95,6 +97,8 @@ function getSortValue(issue: JiraIssue, key: SortKey) {
       return issue.assignee;
     case "sprint":
       return issue.sprint;
+    case "storyPoints":
+      return issue.storyPoints;
     case "workStartedAt":
       return issue.workStartedAt
         ? new Date(issue.workStartedAt).getTime()
@@ -281,6 +285,9 @@ export function IssueList({
                     </td>
                     <td className="px-3 py-2 text-zinc-600">
                       {issue.sprint ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 font-semibold tabular-nums text-zinc-700">
+                      {issue.storyPoints ?? "—"}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-zinc-500">
                       {issue.workStartedAt

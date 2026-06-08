@@ -183,6 +183,14 @@ export function SprintSummaryCard({
                     >
                       {issue.key}
                     </a>
+                    {issue.storyPoints !== null ? (
+                      <span
+                        className="shrink-0 rounded border border-zinc-200 bg-white px-1 py-px text-[9px] font-black leading-none tabular-nums text-zinc-700"
+                        title="Story points"
+                      >
+                        {issue.storyPoints}
+                      </span>
+                    ) : null}
                     <p className="min-w-0 flex-1 break-words text-[10px] leading-snug text-zinc-700">
                       {issue.summary}
                     </p>
