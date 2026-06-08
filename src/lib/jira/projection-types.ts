@@ -1,7 +1,13 @@
+export type ProjectionUnit = "tickets" | "storyPoints";
+
 export type SprintProjection = {
   sprint: number;
   total: number;
   done: number;
+  totalPoints: number;
+  donePoints: number;
+  inProgressPoints: number;
+  notStartedPoints: number;
   /** Pendentes na simulação (não concluídos, inclui backlog) */
   open: number;
   /** Tickets que saíram de "A Fazer" e ainda não estão "Feito" */
@@ -29,18 +35,26 @@ export type ProjectProjection = {
   projectKey: string;
   projectName: string;
   generatedAt: string;
+  unit: ProjectionUnit;
   overall: {
     total: number;
     done: number;
     open: number;
     completionPct: number;
+    totalPoints: number;
+    donePoints: number;
+    openPoints: number;
+    completionPctPoints: number;
   };
   velocity: {
     throughputPerDay: number;
+    unit: ProjectionUnit;
     medianDaysToResolve: number;
     medianCycleDays: number;
     sampleSize: number;
     windowDays: number;
+    /** Story points entregues na janela (apenas modo storyPoints) */
+    pointsDelivered?: number;
   };
   timeline: ProjectionTimeline;
   projection: {
@@ -52,4 +66,9 @@ export type ProjectProjection = {
   };
   sprints: SprintProjection[];
   assumptions: string[];
+};
+
+export type CheckoutProjections = {
+  tickets: ProjectProjection;
+  storyPoints: ProjectProjection;
 };

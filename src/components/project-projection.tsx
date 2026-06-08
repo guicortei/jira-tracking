@@ -6,7 +6,12 @@ import {
   stripedGradient,
 } from "@/components/dual-progress-bar";
 import { SprintSummaryCard } from "@/components/sprint-summary-card";
-import type { ProjectProjection, SprintProjection } from "@/lib/jira/projection-types";
+import type {
+  CheckoutProjections,
+  ProjectionUnit,
+  ProjectProjection,
+  SprintProjection,
+} from "@/lib/jira/projection-types";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -63,6 +68,15 @@ function positionOnTimeline(date: string, startMs: number, endMs: number) {
   );
 }
 
+function buildTimelineRange(projection: ProjectProjection) {
+  const startMs = dateToMs(projection.timeline.projectStartDate);
+  let endMs = dateToMs(projection.timeline.estimatedEndDate);
+  if (endMs <= startMs) {
+    endMs = startMs + 86400000;
+  }
+  return { startMs, endMs };
+}
+
 export function ProjectProjectionPanel({
   projectKey,
   projectName,
@@ -71,7 +85,9 @@ export function ProjectProjectionPanel({
   issuesLoading = false,
   onBack,
 }: ProjectProjectionPanelProps) {
-  const [projection, setProjection] = useState<ProjectProjection | null>(null);
+  const [projections, setProjections] = useState<CheckoutProjections | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const metricsColumnRef = useRef<HTMLDivElement>(null);
@@ -87,7 +103,7 @@ export function ProjectProjectionPanel({
         if (!response.ok) {
           throw new Error(data.error ?? "Falha ao carregar projeção.");
         }
-        setProjection(data);
+        setProjections(data);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Falha ao carregar projeção.",
@@ -99,22 +115,26 @@ export function ProjectProjectionPanel({
     loadProjection();
   }, [projectKey]);
 
-  const timelineRange = useMemo(() => {
-    if (!projection) return null;
-    const startMs = dateToMs(projection.timeline.projectStartDate);
-    let endMs = dateToMs(projection.timeline.estimatedEndDate);
-    if (endMs <= startMs) {
-      endMs = startMs + 86400000;
-    }
-    return { startMs, endMs };
-  }, [projection]);
+  const ticketProjection = projections?.tickets ?? null;
+  const storyPointsProjection = projections?.storyPoints ?? null;
+
+  const ticketTimelineRange = useMemo(
+    () => (ticketProjection ? buildTimelineRange(ticketProjection) : null),
+    [ticketProjection],
+  );
+
+  const storyPointsTimelineRange = useMemo(
+    () =>
+      storyPointsProjection ? buildTimelineRange(storyPointsProjection) : null,
+    [storyPointsProjection],
+  );
 
   const activeSprints = useMemo(() => {
-    if (!projection) return 0;
-    return projection.sprints.filter(
+    if (!ticketProjection) return 0;
+    return ticketProjection.sprints.filter(
       (s) => s.unlocked && s.done < s.total,
     ).length;
-  }, [projection]);
+  }, [ticketProjection]);
 
   const issuesBySprint = useMemo(() => {
     const map = new Map<number, JiraIssue[]>();
@@ -157,7 +177,7 @@ export function ProjectProjectionPanel({
       observer.disconnect();
       window.removeEventListener("resize", runSync);
     };
-  }, [projection, loading]);
+  }, [ticketProjection, loading]);
 
   if (loading) {
     return (
@@ -180,10 +200,18 @@ export function ProjectProjectionPanel({
     );
   }
 
-  if (!projection || !timelineRange) return null;
+  if (
+    !ticketProjection ||
+    !storyPointsProjection ||
+    !ticketTimelineRange ||
+    !storyPointsTimelineRange
+  ) {
+    return null;
+  }
 
-  const { startMs, endMs } = timelineRange;
-  const overallInProgress = projection.sprints.reduce(
+  const { startMs, endMs } = ticketTimelineRange;
+  const storyPointsRange = storyPointsTimelineRange;
+  const overallInProgress = ticketProjection.sprints.reduce(
     (acc, sprint) => acc + sprint.inProgress,
     0,
   );
@@ -210,13 +238,17 @@ export function ProjectProjectionPanel({
 
             <div className="min-w-[240px] rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-6 py-4 text-white shadow-lg">
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-100">
-                Entrega estimada
+                Entrega estimada (tickets)
               </p>
               <p className="mt-1 text-2xl font-black leading-tight">
-                {formatDateLong(projection.projection.estimatedDate)}
+                {formatDateLong(ticketProjection.projection.estimatedDate)}
               </p>
               <p className="mt-2 text-sm font-semibold text-emerald-100">
-                Faltam {projection.projection.remainingDays} dias
+                Faltam {ticketProjection.projection.remainingDays} dias
+              </p>
+              <p className="mt-3 border-t border-emerald-500/50 pt-3 text-xs font-semibold text-emerald-100">
+                Por story points:{" "}
+                {formatDateLong(storyPointsProjection.projection.estimatedDate)}
               </p>
             </div>
           </div>
@@ -225,13 +257,13 @@ export function ProjectProjectionPanel({
             <div className="mb-2 flex items-center justify-between text-sm font-semibold">
               <span>Progresso geral do projeto</span>
               <span className="text-blue-700">
-                {projection.overall.done}/{projection.overall.total} (
-                {formatPct(projection.overall.completionPct)})
+                {ticketProjection.overall.done}/{ticketProjection.overall.total} (
+                {formatPct(ticketProjection.overall.completionPct)})
               </span>
             </div>
             <DualProgressBar
-              total={projection.overall.total}
-              done={projection.overall.done}
+              total={ticketProjection.overall.total}
+              done={ticketProjection.overall.done}
               inProgress={overallInProgress}
               doneColor="#2563eb"
               inProgressColor="#60a5fa"
@@ -258,29 +290,29 @@ export function ProjectProjectionPanel({
           <div className="grid gap-4 sm:grid-cols-2">
             <KpiCard
               label="Progresso"
-              value={formatPct(projection.overall.completionPct)}
-              detail={`${projection.overall.done} concluídos · ${projection.overall.open} abertos`}
+              value={formatPct(ticketProjection.overall.completionPct)}
+              detail={`${ticketProjection.overall.done} concluídos · ${ticketProjection.overall.open} abertos · ${ticketProjection.overall.donePoints}/${ticketProjection.overall.totalPoints} pts`}
               borderColor="#2563eb"
               bgColor="#eff6ff"
             />
             <KpiCard
               label="Velocidade"
-              value={`${projection.velocity.throughputPerDay}/dia`}
-              detail={`Mediana de ${projection.velocity.medianCycleDays} dias (cycle time)`}
+              value={`${ticketProjection.velocity.throughputPerDay} tk/dia`}
+              detail={`${storyPointsProjection.velocity.throughputPerDay} pts/dia · mediana ${ticketProjection.velocity.medianCycleDays}d (cycle time)`}
               borderColor="#7c3aed"
               bgColor="#f5f3ff"
             />
             <KpiCard
               label="Sprints ativas"
               value={String(activeSprints)}
-              detail={`de ${projection.sprints.length} sprints no total`}
+              detail={`de ${ticketProjection.sprints.length} sprints no total`}
               borderColor="#d97706"
               bgColor="#fffbeb"
             />
             <KpiCard
               label="Base da estimativa"
-              value={String(projection.velocity.sampleSize)}
-              detail={`tickets resolvidos em ${projection.velocity.windowDays} dia(s)`}
+              value={String(ticketProjection.velocity.sampleSize)}
+              detail={`${storyPointsProjection.velocity.pointsDelivered ?? 0} pts em ${ticketProjection.velocity.windowDays} dia(s)`}
               borderColor="#0891b2"
               bgColor="#ecfeff"
             />
@@ -294,23 +326,23 @@ export function ProjectProjectionPanel({
             <div className="grid gap-4 sm:grid-cols-3">
               <ForecastCard
                 label="Otimista"
-                date={formatDateLong(projection.projection.optimisticDate)}
-                sub={formatDateShort(projection.projection.optimisticDate)}
+                date={formatDateLong(ticketProjection.projection.optimisticDate)}
+                sub={formatDateShort(ticketProjection.projection.optimisticDate)}
                 color="#059669"
                 bg="#ecfdf5"
               />
               <ForecastCard
                 label="Estimado"
-                date={formatDateLong(projection.projection.estimatedDate)}
-                sub={`${projection.projection.remainingDays} dias restantes`}
+                date={formatDateLong(ticketProjection.projection.estimatedDate)}
+                sub={`${ticketProjection.projection.remainingDays} dias restantes`}
                 color="#1d4ed8"
                 bg="#dbeafe"
                 highlight
               />
               <ForecastCard
                 label="Pessimista"
-                date={formatDateLong(projection.projection.pessimisticDate)}
-                sub={formatDateShort(projection.projection.pessimisticDate)}
+                date={formatDateLong(ticketProjection.projection.pessimisticDate)}
+                sub={formatDateShort(ticketProjection.projection.pessimisticDate)}
                 color="#b45309"
                 bg="#fef3c7"
               />
@@ -344,7 +376,7 @@ export function ProjectProjectionPanel({
               em andamento.
             </p>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
-              {projection.sprints.map((sprint, index) => (
+              {ticketProjection.sprints.map((sprint, index) => (
                 <SprintSummaryCard
                   key={sprint.sprint}
                   sprint={sprint}
@@ -361,26 +393,55 @@ export function ProjectProjectionPanel({
 
       {/* Cronograma — largura total */}
       <section className="w-full rounded-2xl border-2 border-zinc-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-bold text-zinc-900">Cronograma por sprint</h2>
+        <h2 className="text-base font-bold text-zinc-900">
+          Cronograma por sprint — velocidade em tickets
+        </h2>
         <p className="mb-1 text-sm text-zinc-600">
           Gantt sequencial: início em{" "}
           <strong className="font-semibold">
-            {formatDateShort(projection.timeline.projectStartDate)}
+            {formatDateShort(ticketProjection.timeline.projectStartDate)}
           </strong>
-          , velocidade de {projection.velocity.throughputPerDay} tickets/dia. Cada sprint só começa
-          quando a anterior termina.
+          , velocidade de {ticketProjection.velocity.throughputPerDay} tickets/dia. Cada sprint só
+          começa quando a anterior termina.
         </p>
-          <p className="mb-4 text-xs text-zinc-500">
-            Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
-          </p>
+        <p className="mb-4 text-xs text-zinc-500">
+          Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+        </p>
 
         <SprintGanttChart
-          sprints={projection.sprints}
-          velocityPerDay={projection.velocity.throughputPerDay}
-          projectStartDate={projection.timeline.projectStartDate}
-          estimatedEndDate={projection.timeline.estimatedEndDate}
+          sprints={ticketProjection.sprints}
+          unit="tickets"
+          velocityPerDay={ticketProjection.velocity.throughputPerDay}
+          projectStartDate={ticketProjection.timeline.projectStartDate}
+          estimatedEndDate={ticketProjection.timeline.estimatedEndDate}
           startMs={startMs}
           endMs={endMs}
+        />
+      </section>
+
+      <section className="w-full rounded-2xl border-2 border-violet-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-bold text-zinc-900">
+          Cronograma por sprint — velocidade em story points
+        </h2>
+        <p className="mb-1 text-sm text-zinc-600">
+          Mesma lógica sequencial, mas a duração de cada sprint usa a soma de{" "}
+          <strong className="font-semibold">Story point estimate</strong> ÷ velocidade em pontos/dia
+          ({storyPointsProjection.velocity.throughputPerDay} pts/dia com base em{" "}
+          {storyPointsProjection.velocity.pointsDelivered ?? 0} pts já entregues).
+        </p>
+        <p className="mb-4 text-xs text-zinc-500">
+          Término estimado: {formatDateLong(storyPointsProjection.projection.estimatedDate)} ·
+          barra ainda segmentada por ticket (progresso real)
+        </p>
+
+        <SprintGanttChart
+          sprints={storyPointsProjection.sprints}
+          unit="storyPoints"
+          velocityPerDay={storyPointsProjection.velocity.throughputPerDay}
+          projectStartDate={storyPointsProjection.timeline.projectStartDate}
+          estimatedEndDate={storyPointsProjection.timeline.estimatedEndDate}
+          startMs={storyPointsRange.startMs}
+          endMs={storyPointsRange.endMs}
         />
       </section>
 
@@ -388,11 +449,24 @@ export function ProjectProjectionPanel({
         <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-zinc-800">
           Como a projeção é calculada ▾
         </summary>
-        <ul className="space-y-2 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
-          {projection.assumptions.map((item) => (
-            <li key={item}>• {item}</li>
-          ))}
-        </ul>
+        <div className="space-y-4 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
+          <div>
+            <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
+            <ul className="space-y-2">
+              {ticketProjection.assumptions.map((item) => (
+                <li key={`tk-${item}`}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points</h3>
+            <ul className="space-y-2">
+              {storyPointsProjection.assumptions.map((item) => (
+                <li key={`sp-${item}`}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </details>
     </div>
   );
@@ -541,6 +615,7 @@ function buildMonthTicks(startMs: number, endMs: number) {
 
 function SprintGanttChart({
   sprints,
+  unit,
   velocityPerDay,
   projectStartDate,
   estimatedEndDate,
@@ -548,12 +623,16 @@ function SprintGanttChart({
   endMs,
 }: {
   sprints: SprintProjection[];
+  unit: ProjectionUnit;
   velocityPerDay: number;
   projectStartDate: string;
   estimatedEndDate: string;
   startMs: number;
   endMs: number;
 }) {
+  const workloadLabel = unit === "storyPoints" ? "pts" : "tk";
+  const velocityLabel =
+    unit === "storyPoints" ? `${velocityPerDay} pts/dia` : `${velocityPerDay} tickets/dia`;
   const todayPct = positionOnTimeline(new Date().toISOString(), startMs, endMs);
   const monthTicks = useMemo(
     () => buildMonthTicks(startMs, endMs),
@@ -644,7 +723,11 @@ function SprintGanttChart({
                         backgroundColor: color,
                         minWidth: sprint.total > 0 ? "12px" : "6px",
                       }}
-                      title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${sprint.total} tickets`}
+                      title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${
+                        unit === "storyPoints"
+                          ? `${sprint.totalPoints} pts`
+                          : `${sprint.total} tickets`
+                      }`}
                     >
                       {sprint.total > 0 ? (
                         <>
@@ -680,7 +763,8 @@ function SprintGanttChart({
             >
               <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
               <p className="text-[10px] font-medium text-zinc-500">
-                {sprint.total} tk · {sprint.projectedDurationDays}d
+                {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
+                {workloadLabel} · {sprint.projectedDurationDays}d
               </p>
             </div>
           ))}
@@ -696,7 +780,7 @@ function SprintGanttChart({
             {formatDateShort(estimatedEndDate)}
           </span>
           <span>
-            <strong className="text-zinc-800">Velocidade:</strong> {velocityPerDay}/dia
+            <strong className="text-zinc-800">Velocidade:</strong> {velocityLabel}
           </span>
         </div>
       </div>

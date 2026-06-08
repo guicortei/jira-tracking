@@ -3,6 +3,7 @@ import { daysBetween, getSiteBaseUrl, jiraFetch } from "./fetch";
 import type { JiraIssue, JiraProject } from "./types";
 
 const SPRINT_FIELD = "customfield_10220";
+const STORY_POINTS_FIELD = "customfield_10016";
 
 type JiraSearchResponse = {
   issues: Array<{
@@ -19,6 +20,7 @@ type JiraSearchResponse = {
       assignee?: { displayName: string } | null;
       project?: { key: string; name: string };
       customfield_10220?: number | null;
+      customfield_10016?: number | null;
     };
   }>;
   isLast?: boolean;
@@ -94,6 +96,7 @@ function mapIssueFromSearch(
     daysCycleTime: null,
     daysInProgress: null,
     sprint: issue.fields.customfield_10220 ?? null,
+    storyPoints: issue.fields.customfield_10016 ?? null,
   };
 }
 
@@ -110,6 +113,7 @@ export async function listIssues(projectKey: string): Promise<JiraIssue[]> {
     "updated",
     "resolutiondate",
     SPRINT_FIELD,
+    STORY_POINTS_FIELD,
   ];
   const issues: JiraIssue[] = [];
   let nextPageToken: string | undefined;

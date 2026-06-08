@@ -28,6 +28,7 @@ export type JiraIssue = {
   /** Dias desde workStartedAt (tickets em andamento) */
   daysInProgress: number | null;
   sprint: number | null;
+  storyPoints: number | null;
 };
 
 export type JiraIssuesResponse = {

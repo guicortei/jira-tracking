@@ -152,8 +152,8 @@ export function IssueList({
   onBack,
   compactHeader = false,
 }: IssueListProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [sortKey, setSortKey] = useState<SortKey>("status");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const sortedIssues = useMemo(() => {
     return [...issues].sort((a, b) =>
@@ -172,7 +172,9 @@ export function IssueList({
     }
 
     setSortKey(key);
-    setSortDirection(key === "key" || key === "summary" ? "asc" : "desc");
+    setSortDirection(
+      key === "key" || key === "summary" || key === "status" ? "asc" : "desc",
+    );
   };
 
   return (

@@ -1,5 +1,10 @@
 import type { JiraIssue } from "./types";
-import type { ProjectProjection, SprintProjection } from "./projection-types";
+import type {
+  CheckoutProjections,
+  ProjectionUnit,
+  ProjectProjection,
+  SprintProjection,
+} from "./projection-types";
 import { normalizeStatus } from "@/components/status-timeline";
 
 const CHECKOUT_PROJECT_KEY = "CT";
@@ -12,6 +17,10 @@ function isDone(status: string) {
 
 function isNotStarted(status: string) {
   return normalizeStatus(status) === "A FAZER";
+}
+
+function issuePoints(issue: JiraIssue) {
+  return issue.storyPoints ?? 0;
 }
 
 function median(values: number[]) {
@@ -43,7 +52,7 @@ function daysBetween(start: Date, end: Date) {
   return Math.max(0, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
 }
 
-function computeVelocity(issues: JiraIssue[]) {
+function computeVelocity(issues: JiraIssue[], unit: ProjectionUnit) {
   const completed = issues.filter(
     (issue) => isDone(issue.status) && issue.resolutionDate,
   );
@@ -54,9 +63,59 @@ function computeVelocity(issues: JiraIssue[]) {
 
   const medianCycleDays = median(cycleDays);
 
+  if (unit === "storyPoints") {
+    const completedWithPoints = completed.filter((issue) => issuePoints(issue) > 0);
+
+    if (completedWithPoints.length === 0) {
+      return {
+        throughputPerDay: 1,
+        unit,
+        medianDaysToResolve: medianCycleDays || 5,
+        medianCycleDays: medianCycleDays || 5,
+        sampleSize: 0,
+        windowDays: 0,
+        pointsDelivered: 0,
+      };
+    }
+
+    const resolutionDates = completedWithPoints.map(
+      (issue) => new Date(issue.resolutionDate!).getTime(),
+    );
+    const minDate = Math.min(...resolutionDates);
+    const maxDate = Math.max(...resolutionDates);
+    const windowDays = Math.max(
+      1,
+      Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)),
+    );
+
+    const pointsDelivered = completedWithPoints.reduce(
+      (sum, issue) => sum + issuePoints(issue),
+      0,
+    );
+    const throughputFromWindow = pointsDelivered / windowDays;
+
+    const pointRates = completedWithPoints.map((issue) => {
+      const days =
+        issue.daysCycleTime ?? issue.daysToResolve ?? (medianCycleDays || 5);
+      return days > 0 ? issuePoints(issue) / days : issuePoints(issue);
+    });
+    const medianPointRate = median(pointRates);
+
+    return {
+      throughputPerDay: Math.max(throughputFromWindow, medianPointRate * 0.5),
+      unit,
+      medianDaysToResolve: medianCycleDays || 5,
+      medianCycleDays: medianCycleDays || 5,
+      sampleSize: completedWithPoints.length,
+      windowDays,
+      pointsDelivered,
+    };
+  }
+
   if (completed.length === 0) {
     return {
       throughputPerDay: 1,
+      unit,
       medianDaysToResolve: medianCycleDays || 5,
       medianCycleDays: medianCycleDays || 5,
       sampleSize: 0,
@@ -80,6 +139,7 @@ function computeVelocity(issues: JiraIssue[]) {
 
   return {
     throughputPerDay: Math.max(throughputFromWindow, throughputFromMedian * 0.5),
+    unit,
     medianDaysToResolve: medianCycleDays || 5,
     medianCycleDays: medianCycleDays || 5,
     sampleSize: completed.length,
@@ -107,21 +167,35 @@ function getProjectWorkStartDate(issues: JiraIssue[], fallback: Date) {
 
 function summarizeSprint(issues: JiraIssue[], sprint: number) {
   const sprintIssues = issues.filter((issue) => issue.sprint === sprint);
-  const done = sprintIssues.filter((issue) => isDone(issue.status)).length;
-  const notStarted = sprintIssues.filter((issue) =>
+  const doneIssues = sprintIssues.filter((issue) => isDone(issue.status));
+  const notStartedIssues = sprintIssues.filter((issue) =>
     isNotStarted(issue.status),
-  ).length;
-  const inProgress = sprintIssues.filter(
+  );
+  const inProgressIssues = sprintIssues.filter(
     (issue) => !isDone(issue.status) && !isNotStarted(issue.status),
-  ).length;
+  );
+
+  const sumPoints = (list: JiraIssue[]) =>
+    list.reduce((sum, issue) => sum + issuePoints(issue), 0);
 
   return {
     sprintIssues,
     total: sprintIssues.length,
-    done,
-    notStarted,
-    inProgress,
+    done: doneIssues.length,
+    notStarted: notStartedIssues.length,
+    inProgress: inProgressIssues.length,
+    totalPoints: sumPoints(sprintIssues),
+    donePoints: sumPoints(doneIssues),
+    notStartedPoints: sumPoints(notStartedIssues),
+    inProgressPoints: sumPoints(inProgressIssues),
   };
+}
+
+function sprintWorkload(
+  summary: ReturnType<typeof summarizeSprint>,
+  unit: ProjectionUnit,
+) {
+  return unit === "tickets" ? summary.total : summary.totalPoints;
 }
 
 function scheduleSprintsSequentially(
@@ -129,6 +203,7 @@ function scheduleSprintsSequentially(
   throughputPerDay: number,
   projectStart: Date,
   now: Date,
+  unit: ProjectionUnit,
 ) {
   const sprintNumbers = [
     ...new Set(
@@ -142,13 +217,11 @@ function scheduleSprintsSequentially(
   let cursor = new Date(projectStart);
 
   const sprints: SprintProjection[] = sprintNumbers.map((sprint) => {
-    const { total, done, notStarted, inProgress } = summarizeSprint(
-      issues,
-      sprint,
-    );
+    const summary = summarizeSprint(issues, sprint);
+    const workload = sprintWorkload(summary, unit);
 
     const durationDays =
-      total > 0 ? Math.max(1, Math.ceil(total / rate)) : 0;
+      workload > 0 ? Math.max(1, Math.ceil(workload / rate)) : 0;
     const start = new Date(cursor);
     const end = durationDays > 0 ? addDays(start, durationDays) : start;
 
@@ -161,19 +234,23 @@ function scheduleSprintsSequentially(
     const nowMs = now.getTime();
 
     let unlocked = false;
-    if (total > 0 && done < total) {
+    if (summary.total > 0 && summary.done < summary.total) {
       if (nowMs >= startMs && nowMs < endMs) unlocked = true;
-      if (inProgress > 0) unlocked = true;
+      if (summary.inProgress > 0) unlocked = true;
     }
 
     return {
       sprint,
-      total,
-      done,
-      open: total - done,
-      inProgress,
-      notStarted,
-      completionPct: total > 0 ? done / total : 0,
+      total: summary.total,
+      done: summary.done,
+      open: summary.total - summary.done,
+      inProgress: summary.inProgress,
+      notStarted: summary.notStarted,
+      totalPoints: summary.totalPoints,
+      donePoints: summary.donePoints,
+      inProgressPoints: summary.inProgressPoints,
+      notStartedPoints: summary.notStartedPoints,
+      completionPct: summary.total > 0 ? summary.done / summary.total : 0,
       unlocked,
       projectedDurationDays: Math.ceil(durationDays),
       estimatedDaysRemaining: Math.max(0, Math.ceil(durationDays)),
@@ -197,12 +274,13 @@ function scheduleSprintsSequentially(
   };
 }
 
-export function buildCheckoutProjection(
+function buildProjection(
   issues: JiraIssue[],
-  projectName = "Checkout TechTeam",
+  unit: ProjectionUnit,
+  projectName: string,
 ): ProjectProjection {
   const sprintIssues = issues.filter((issue) => issue.sprint !== null);
-  const velocity = computeVelocity(sprintIssues);
+  const velocity = computeVelocity(sprintIssues, unit);
   const now = new Date();
   const projectStart = getProjectWorkStartDate(sprintIssues, now);
 
@@ -211,32 +289,64 @@ export function buildCheckoutProjection(
     velocity.throughputPerDay * OPTIMISTIC_FACTOR,
     projectStart,
     now,
+    unit,
   );
   const estimated = scheduleSprintsSequentially(
     sprintIssues,
     velocity.throughputPerDay,
     projectStart,
     now,
+    unit,
   );
   const pessimistic = scheduleSprintsSequentially(
     sprintIssues,
     velocity.throughputPerDay * PESSIMISTIC_FACTOR,
     projectStart,
     now,
+    unit,
   );
 
-  const done = sprintIssues.filter((issue) => isDone(issue.status)).length;
+  const doneIssues = sprintIssues.filter((issue) => isDone(issue.status));
   const total = sprintIssues.length;
+  const done = doneIssues.length;
+  const totalPoints = sprintIssues.reduce(
+    (sum, issue) => sum + issuePoints(issue),
+    0,
+  );
+  const donePoints = doneIssues.reduce(
+    (sum, issue) => sum + issuePoints(issue),
+    0,
+  );
+
+  const throughputLabel =
+    unit === "tickets"
+      ? `${velocity.throughputPerDay.toFixed(2)} tickets/dia`
+      : `${velocity.throughputPerDay.toFixed(2)} pts/dia`;
+
+  const durationRule =
+    unit === "tickets"
+      ? "duração = tickets da sprint ÷ velocidade"
+      : "duração = story points da sprint ÷ velocidade em pontos";
+
+  const sampleLabel =
+    unit === "tickets"
+      ? `${velocity.sampleSize} conclusões nos últimos ${velocity.windowDays} dia(s)`
+      : `${velocity.pointsDelivered ?? 0} pts entregues em ${velocity.sampleSize} tickets nos últimos ${velocity.windowDays} dia(s)`;
 
   return {
     projectKey: CHECKOUT_PROJECT_KEY,
     projectName,
     generatedAt: now.toISOString(),
+    unit,
     overall: {
       total,
       done,
       open: total - done,
       completionPct: total > 0 ? done / total : 0,
+      totalPoints,
+      donePoints,
+      openPoints: totalPoints - donePoints,
+      completionPctPoints: totalPoints > 0 ? donePoints / totalPoints : 0,
     },
     velocity: {
       ...velocity,
@@ -257,14 +367,34 @@ export function buildCheckoutProjection(
     },
     sprints: estimated.sprints,
     assumptions: [
-      "Projeção read-only com base nos tickets atuais do Checkout TechTeam.",
+      unit === "tickets"
+        ? "Cenário por quantidade de tickets concluídos por dia."
+        : "Cenário por story points entregues por dia (pontos proporcionais ao esforço).",
       `Início do projeto: ${formatDatePt(projectStart)} (menor data de início de trabalho via changelog).`,
-      `Velocidade estimada: ${velocity.throughputPerDay.toFixed(2)} tickets/dia (${velocity.sampleSize} conclusões nos últimos ${velocity.windowDays} dia(s)).`,
-      "Cada sprint é um bloco sequencial: duração = tickets da sprint ÷ velocidade; a próxima sprint começa quando a anterior termina.",
+      `Velocidade estimada: ${throughputLabel} (${sampleLabel}).`,
+      `Cada sprint é um bloco sequencial: ${durationRule}; a próxima sprint começa quando a anterior termina.`,
       `Mediana de cycle time: ${velocity.medianCycleDays.toFixed(1)} dias (saída de "A Fazer" até conclusão).`,
       `Faixa de término: otimista ${formatDatePt(optimistic.projectEndDate)}, pessimista ${formatDatePt(pessimistic.projectEndDate)}.`,
     ],
   };
+}
+
+export function buildCheckoutProjections(
+  issues: JiraIssue[],
+  projectName = "Checkout TechTeam",
+): CheckoutProjections {
+  return {
+    tickets: buildProjection(issues, "tickets", projectName),
+    storyPoints: buildProjection(issues, "storyPoints", projectName),
+  };
+}
+
+/** @deprecated Use buildCheckoutProjections */
+export function buildCheckoutProjection(
+  issues: JiraIssue[],
+  projectName = "Checkout TechTeam",
+): ProjectProjection {
+  return buildCheckoutProjections(issues, projectName).tickets;
 }
 
 export function isCheckoutProject(projectKey: string) {
