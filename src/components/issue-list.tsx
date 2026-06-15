@@ -334,16 +334,28 @@ type VisibleIssueRow = {
   depth: number;
   isLinked: boolean;
   pathKey: string;
+  ancestorKeys: string[];
 };
 
-function LinkedIssuesDots({ issue }: { issue: JiraIssue }) {
-  if (issue.linkedIssues.length === 0) {
+function LinkedIssuesDots({
+  issue,
+  ancestorKeys = [],
+}: {
+  issue: JiraIssue;
+  ancestorKeys?: string[];
+}) {
+  const hiddenKeys = new Set(ancestorKeys);
+  const visibleLinkedIssues = issue.linkedIssues.filter(
+    (linked) => !hiddenKeys.has(linked.key),
+  );
+
+  if (visibleLinkedIssues.length === 0) {
     return <span className="text-zinc-400">—</span>;
   }
 
   return (
     <div className="flex flex-wrap gap-1">
-      {issue.linkedIssues.map((linked) => {
+      {visibleLinkedIssues.map((linked) => {
         const color = getStatusAccent(linked.status);
 
         return (
@@ -353,7 +365,7 @@ function LinkedIssuesDots({ issue }: { issue: JiraIssue }) {
             style={{ backgroundColor: color }}
             title={`${linked.key} · ${linked.status} · ${linked.summary}`}
           >
-            ({compactTicketKey(linked.key)})
+            {compactTicketKey(linked.key)}
           </span>
         );
       })}
@@ -366,6 +378,7 @@ function IssueRow({
   project,
   depth,
   isLinked,
+  ancestorKeys,
   expanded,
   loadingLinked,
   onToggleExpand,
@@ -374,6 +387,7 @@ function IssueRow({
   project: JiraProject;
   depth: number;
   isLinked: boolean;
+  ancestorKeys: string[];
   expanded: boolean;
   loadingLinked: boolean;
   onToggleExpand: (issue: JiraIssue) => void;
@@ -408,7 +422,7 @@ function IssueRow({
         </div>
       </td>
       <td className="px-3 py-2">
-        <LinkedIssuesDots issue={issue} />
+        <LinkedIssuesDots issue={issue} ancestorKeys={ancestorKeys} />
       </td>
       <td className="max-w-xs truncate px-3 py-2 text-zinc-900">{issue.summary}</td>
       <td className="min-w-[240px] px-3 py-2 align-middle">
@@ -551,24 +565,43 @@ export function IssueList({
       depth: number,
       path: Set<string>,
       parentPathKey: string,
+      ancestors: string[],
     ) => {
       const children = linkedByParentKey[parentIssue.key] ?? [];
       for (const child of children) {
         if (path.has(child.key)) continue;
         const pathKey = `${parentPathKey}>${child.key}`;
         if (matchesSelectedFilters(child)) {
-          rows.push({ issue: child, depth, isLinked: true, pathKey });
+          rows.push({
+            issue: child,
+            depth,
+            isLinked: true,
+            pathKey,
+            ancestorKeys: [...ancestors, parentIssue.key],
+          });
         }
         if (expandedKeys[child.key]) {
-          appendChildren(child, depth + 1, new Set([...path, child.key]), pathKey);
+          appendChildren(
+            child,
+            depth + 1,
+            new Set([...path, child.key]),
+            pathKey,
+            [...ancestors, parentIssue.key],
+          );
         }
       }
     };
 
     for (const issue of sortedIssues) {
-      rows.push({ issue, depth: 0, isLinked: false, pathKey: issue.key });
+      rows.push({
+        issue,
+        depth: 0,
+        isLinked: false,
+        pathKey: issue.key,
+        ancestorKeys: [],
+      });
       if (expandedKeys[issue.key]) {
-        appendChildren(issue, 1, new Set([issue.key]), issue.key);
+        appendChildren(issue, 1, new Set([issue.key]), issue.key, []);
       }
     }
 
@@ -732,6 +765,7 @@ export function IssueList({
                     project={project}
                     depth={row.depth}
                     isLinked={row.isLinked}
+                    ancestorKeys={row.ancestorKeys}
                     expanded={Boolean(expandedKeys[row.issue.key])}
                     loadingLinked={Boolean(loadingLinkedByKey[row.issue.key])}
                     onToggleExpand={handleToggleExpand}
