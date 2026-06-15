@@ -12,6 +12,7 @@ export type JiraIssue = {
   summary: string;
   status: string;
   issueType: string;
+  categories: string[];
   priority: string | null;
   assignee: string | null;
   projectKey: string;

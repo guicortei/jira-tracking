@@ -24,6 +24,7 @@ type SortKey =
   | "summary"
   | "status"
   | "issueType"
+  | "categories"
   | "assignee"
   | "sprint"
   | "storyPoints"
@@ -41,6 +42,7 @@ const columns: { key: SortKey; label: string; className?: string }[] = [
   { key: "summary", label: "Resumo" },
   { key: "status", label: "Andamento", className: "min-w-[240px]" },
   { key: "issueType", label: "Tipo" },
+  { key: "categories", label: "Categorias", className: "min-w-[180px]" },
   { key: "assignee", label: "Responsável" },
   { key: "sprint", label: "_sprint" },
   { key: "storyPoints", label: "Points" },
@@ -63,6 +65,8 @@ function getIssueCellValue(issue: JiraIssue, key: SortKey) {
       return issue.status;
     case "issueType":
       return issue.issueType;
+    case "categories":
+      return issue.categories.length > 0 ? issue.categories.join(", ") : "—";
     case "assignee":
       return issue.assignee ?? "—";
     case "sprint":
@@ -86,6 +90,13 @@ function getIssueCellValue(issue: JiraIssue, key: SortKey) {
     case "updated":
       return formatDate(issue.updated);
   }
+}
+
+function getIssueFilterValues(issue: JiraIssue, key: SortKey) {
+  if (key === "categories") {
+    return issue.categories.length > 0 ? issue.categories : ["—"];
+  }
+  return [getIssueCellValue(issue, key)];
 }
 
 function formatDate(value: string) {
@@ -148,6 +159,8 @@ function getSortValue(issue: JiraIssue, key: SortKey) {
       return getStatusSortValue(issue.status);
     case "issueType":
       return issue.issueType;
+    case "categories":
+      return issue.categories.join(", ");
     case "assignee":
       return issue.assignee;
     case "sprint":
@@ -401,6 +414,23 @@ function IssueRow({
       </td>
       <td className="px-3 py-2 text-zinc-600">{issue.issueType}</td>
       <td className="px-3 py-2">
+        {issue.categories.length > 0 ? (
+          <div className="flex max-w-[240px] flex-wrap gap-1">
+            {issue.categories.map((category) => (
+              <span
+                key={`${issue.key}-category-${category}`}
+                className="inline-flex rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-700"
+                title={category}
+              >
+                {category}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-zinc-500">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
         {issue.assignee ? (
           <AssigneeBadge name={issue.assignee} className="px-1 py-0.5 text-[9px]" />
         ) : (
@@ -469,7 +499,9 @@ export function IssueList({
     for (const column of columns) {
       const values = new Set<string>();
       for (const issue of allKnownIssues) {
-        values.add(getIssueCellValue(issue, column.key));
+        for (const value of getIssueFilterValues(issue, column.key)) {
+          values.add(value);
+        }
       }
       map[column.key] = [...values].sort((a, b) =>
         a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" }),
@@ -485,8 +517,8 @@ export function IssueList({
         const options = filterOptionsByKey[key] ?? [];
         const selected = selectedFilterValuesByKey[key] ?? options;
         if (selected.length === options.length) continue;
-        const value = getIssueCellValue(issue, key);
-        if (!selected.includes(value)) {
+        const values = getIssueFilterValues(issue, key);
+        if (!values.some((value) => selected.includes(value))) {
           return false;
         }
       }

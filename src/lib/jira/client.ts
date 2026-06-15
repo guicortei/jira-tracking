@@ -16,6 +16,7 @@ type JiraSearchResponse = {
       resolutiondate?: string | null;
       status?: { name: string };
       issuetype?: { name: string };
+      labels?: string[];
       priority?: { name: string } | null;
       assignee?: { displayName: string } | null;
       project?: { key: string; name: string };
@@ -75,6 +76,7 @@ const ISSUE_FIELDS = [
   "summary",
   "status",
   "issuetype",
+  "labels",
   "priority",
   "assignee",
   "project",
@@ -147,6 +149,7 @@ function mapIssueFromSearch(
     summary: issue.fields.summary,
     status: issue.fields.status?.name ?? "—",
     issueType: issue.fields.issuetype?.name ?? "—",
+    categories: issue.fields.labels ?? [],
     priority: issue.fields.priority?.name ?? null,
     assignee: issue.fields.assignee?.displayName ?? null,
     projectKey: issue.fields.project?.key ?? "—",
