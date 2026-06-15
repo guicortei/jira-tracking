@@ -35,6 +35,8 @@ type SortKey =
   | "updated";
 
 type SortDirection = "asc" | "desc";
+const DEFAULT_SORT_KEY: SortKey = "status";
+const DEFAULT_SORT_DIRECTION: SortDirection = "asc";
 
 const columns: { key: SortKey; label: string; className?: string }[] = [
   { key: "key", label: "Ticket", className: "min-w-[120px] whitespace-nowrap" },
@@ -471,8 +473,10 @@ export function IssueList({
   onBack,
   compactHeader = false,
 }: IssueListProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(
+    DEFAULT_SORT_DIRECTION,
+  );
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
   const [loadingLinkedByKey, setLoadingLinkedByKey] = useState<Record<string, boolean>>({});
   const [linkedByParentKey, setLinkedByParentKey] = useState<Record<string, JiraIssue[]>>({});
