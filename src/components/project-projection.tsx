@@ -6,6 +6,7 @@ import {
   stripedGradient,
 } from "@/components/dual-progress-bar";
 import { SprintSummaryCard } from "@/components/sprint-summary-card";
+import { normalizeStatus } from "@/components/status-timeline";
 import type {
   CheckoutProjections,
   ProjectionUnit,
@@ -13,7 +14,7 @@ import type {
   SprintProjection,
 } from "@/lib/jira/projection-types";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ProjectProjectionPanelProps = {
   projectKey: string;
@@ -60,6 +61,11 @@ function dateToMs(value: string) {
   return new Date(value).getTime();
 }
 
+function daysFromStartToDate(startDate: string, daysFromStart: number) {
+  const baseMs = dateToMs(startDate);
+  return new Date(baseMs + daysFromStart * 86400000).toISOString();
+}
+
 function positionOnTimeline(date: string, startMs: number, endMs: number) {
   if (endMs <= startMs) return 0;
   return Math.min(
@@ -85,6 +91,9 @@ export function ProjectProjectionPanel({
   issuesLoading = false,
   onBack,
 }: ProjectProjectionPanelProps) {
+  const [storyChartMode, setStoryChartMode] = useState<"projection" | "flow">(
+    "projection",
+  );
   const [projections, setProjections] = useState<CheckoutProjections | null>(
     null,
   );
@@ -395,9 +404,24 @@ export function ProjectProjectionPanel({
       <div className="relative left-1/2 w-screen -translate-x-1/2 space-y-6 px-3 sm:px-5 lg:px-8">
         {/* Cronograma — largura total */}
         <section className="w-full rounded-2xl border-2 border-violet-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-bold text-zinc-900">
-            Cronograma por sprint — velocidade em story points
-          </h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-bold text-zinc-900">
+              Cronograma por sprint — velocidade em story points
+            </h2>
+            <button
+              type="button"
+              onClick={() =>
+                setStoryChartMode((current) =>
+                  current === "projection" ? "flow" : "projection",
+                )
+              }
+              className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              {storyChartMode === "projection"
+                ? "Ver fluxo real por ticket"
+                : "Ver modo projeção"}
+            </button>
+          </div>
           <p className="mb-1 text-sm text-zinc-600">
             Gantt sequencial: início em{" "}
             <strong className="font-semibold">
@@ -408,13 +432,18 @@ export function ProjectProjectionPanel({
             quando a anterior termina.
           </p>
           <p className="mb-4 text-xs text-zinc-500">
-            Barra segmentada por ticket (progresso real) · linha vermelha = hoje
+            {storyChartMode === "projection"
+              ? "Barra segmentada por ticket (progresso real) · linha vermelha = hoje · linha âmbar = ritmo realizado"
+              : "Modo fluxo real: cada bloco de ticket vai de Fazendo até Feito (ou Hoje se ainda não concluído) · linha vermelha = hoje · linha âmbar = ritmo realizado"}
           </p>
 
           <SprintGanttChart
             sprints={projection.sprints}
             unit="storyPoints"
             velocityPerDay={projection.velocity.throughputPerDay}
+            doneWork={projection.overall.donePoints}
+            issuesBySprint={issuesBySprint}
+            viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
             estimatedEndDate={projection.timeline.estimatedEndDate}
             startMs={startMs}
@@ -434,13 +463,17 @@ export function ProjectProjectionPanel({
           </summary>
           <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
             <p className="mb-4 text-xs text-zinc-500">
-              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje · linha
+              âmbar = ritmo realizado
             </p>
 
             <SprintGanttChart
               sprints={altProjection.sprints}
               unit="tickets"
               velocityPerDay={altProjection.velocity.throughputPerDay}
+              doneWork={altProjection.overall.done}
+              issuesBySprint={issuesBySprint}
+              viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
               estimatedEndDate={altProjection.timeline.estimatedEndDate}
               startMs={altTimelineRange.startMs}
@@ -622,6 +655,9 @@ function SprintGanttChart({
   sprints,
   unit,
   velocityPerDay,
+  doneWork,
+  issuesBySprint,
+  viewMode = "projection",
   projectStartDate,
   estimatedEndDate,
   startMs,
@@ -630,6 +666,9 @@ function SprintGanttChart({
   sprints: SprintProjection[];
   unit: ProjectionUnit;
   velocityPerDay: number;
+  doneWork: number;
+  issuesBySprint?: Map<number, JiraIssue[]>;
+  viewMode?: "projection" | "flow";
   projectStartDate: string;
   estimatedEndDate: string;
   startMs: number;
@@ -639,34 +678,157 @@ function SprintGanttChart({
   const velocityLabel =
     unit === "storyPoints" ? `${velocityPerDay} pts/dia` : `${velocityPerDay} tickets/dia`;
   const todayPct = positionOnTimeline(new Date().toISOString(), startMs, endMs);
+  const paceDaysFromStart = velocityPerDay > 0 ? doneWork / velocityPerDay : null;
+  const paceDate =
+    paceDaysFromStart !== null
+      ? daysFromStartToDate(projectStartDate, paceDaysFromStart)
+      : null;
+  const pacePct =
+    paceDate !== null ? positionOnTimeline(paceDate, startMs, endMs) : null;
+  const nowIso = new Date().toISOString();
   const monthTicks = useMemo(
     () => buildMonthTicks(startMs, endMs),
     [startMs, endMs],
   );
   const dayGrid = useMemo(() => buildDayGrid(startMs, endMs), [startMs, endMs]);
-  const timelineRowSpan = sprints.length + 1;
+  const FLOW_BLOCK_HEIGHT = 8;
+  const FLOW_BLOCK_GAP = 3;
+  const FLOW_GROUP_GAP = 5;
+  const FLOW_PADDING_Y = 6;
+  const DEFAULT_ROW_HEIGHT = 40;
+  const firstIncompleteSprintIndex = useMemo(
+    () => sprints.findIndex((sprint) => sprint.done < sprint.total),
+    [sprints],
+  );
+  const plannedCascadeBySprint = useMemo(() => {
+    const cascade = new Map<
+      number,
+      Array<{ key: string; label: string; left: number; width: number; points: number }>
+    >();
+
+    if (viewMode !== "flow" || unit !== "storyPoints") return cascade;
+    if (firstIncompleteSprintIndex < 0 || velocityPerDay <= 0) return cascade;
+
+    let cursorMs = Math.max(dateToMs(nowIso), startMs);
+
+    for (let index = firstIncompleteSprintIndex; index < sprints.length; index += 1) {
+      const sprint = sprints[index];
+      const issues = issuesBySprint?.get(sprint.sprint) ?? [];
+      const pendingIssues = issues.filter(
+        (issue) => !issue.workStartedAt && normalizeStatus(issue.status) === "A FAZER",
+      );
+
+      const blocks = pendingIssues.map((issue) => {
+        const points = Math.max(issue.storyPoints ?? 1, 1);
+        const durationDays = points / velocityPerDay;
+        const blockStartMs = cursorMs;
+        const blockEndMs = blockStartMs + durationDays * 86400000;
+        cursorMs = blockEndMs;
+
+        const left = positionOnTimeline(new Date(blockStartMs).toISOString(), startMs, endMs);
+        const end = positionOnTimeline(new Date(blockEndMs).toISOString(), startMs, endMs);
+        const width = Math.max(0.6, end - left);
+
+        return {
+          key: issue.id,
+          label: issue.key,
+          left,
+          width,
+          points,
+        };
+      });
+
+      cascade.set(sprint.sprint, blocks);
+    }
+
+    return cascade;
+  }, [
+    endMs,
+    firstIncompleteSprintIndex,
+    issuesBySprint,
+    nowIso,
+    sprints,
+    startMs,
+    unit,
+    velocityPerDay,
+    viewMode,
+  ]);
+
+  const buildFlowBlocks = useCallback(
+    (sprint: SprintProjection) => {
+      if (viewMode !== "flow") return [];
+      const flowIssues = issuesBySprint?.get(sprint.sprint) ?? [];
+      return flowIssues
+        .filter((issue) => issue.workStartedAt)
+        .map((issue) => {
+          const flowStart = issue.workStartedAt as string;
+          const statusNormalized = normalizeStatus(issue.status);
+          const flowEnd =
+            issue.resolutionDate || statusNormalized === "FEITO"
+              ? issue.resolutionDate ?? nowIso
+              : nowIso;
+          const startPct = positionOnTimeline(flowStart, startMs, endMs);
+          const endPct = positionOnTimeline(flowEnd, startMs, endMs);
+          const flowWidth = Math.max(0.6, endPct - startPct);
+          const isDone = Boolean(issue.resolutionDate) || statusNormalized === "FEITO";
+
+          return {
+            key: issue.id,
+            label: issue.key,
+            left: startPct,
+            width: flowWidth,
+            isDone,
+          };
+        })
+        .sort((a, b) => a.left - b.left);
+    },
+    [endMs, issuesBySprint, nowIso, startMs, viewMode],
+  );
+
+  const getSprintRowHeight = useCallback(
+    (sprint: SprintProjection) => {
+      if (viewMode !== "flow") return DEFAULT_ROW_HEIGHT;
+      const flowCount = buildFlowBlocks(sprint).length;
+      const plannedCount = (plannedCascadeBySprint.get(sprint.sprint) ?? []).length;
+      const blockCount = flowCount + plannedCount;
+      if (blockCount === 0) return DEFAULT_ROW_HEIGHT;
+      const stackHeight =
+        blockCount * FLOW_BLOCK_HEIGHT +
+        (blockCount - 1) * FLOW_BLOCK_GAP +
+        (flowCount > 0 && plannedCount > 0 ? FLOW_GROUP_GAP : 0);
+      return Math.max(DEFAULT_ROW_HEIGHT, stackHeight + FLOW_PADDING_Y * 2);
+    },
+    [buildFlowBlocks, plannedCascadeBySprint, viewMode],
+  );
 
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[640px]">
         <div
-          className="grid gap-x-2 gap-y-1 text-xs font-semibold text-zinc-500"
+          className="grid gap-x-2 text-xs font-semibold text-zinc-500"
           style={{
             gridTemplateColumns: "88px 1fr",
-            gridTemplateRows: `2.5rem repeat(${sprints.length}, 2.5rem)`,
           }}
         >
-          <span className="flex items-center" style={{ gridColumn: 1, gridRow: 1 }}>
-            Sprint
-          </span>
+          <div className="relative z-10 flex h-full flex-col">
+            <span className="flex h-10 items-center">Sprint</span>
 
-          <div
-            className="relative"
-            style={{
-              gridColumn: 2,
-              gridRow: `1 / ${timelineRowSpan}`,
-            }}
-          >
+            {sprints.map((sprint) => (
+              <div
+                key={`label-${sprint.sprint}`}
+                className="flex flex-col justify-center pr-1"
+                style={{ height: `${getSprintRowHeight(sprint)}px` }}
+              >
+                <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
+                <p className="text-[10px] font-medium text-zinc-500">
+                  {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
+                  {workloadLabel} · {sprint.projectedDurationDays}d
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="relative">
             <DayGridBackground days={dayGrid} />
 
             <div
@@ -680,8 +842,23 @@ function SprintGanttChart({
             >
               Hoje
             </span>
+            {pacePct !== null ? (
+              <>
+                <div
+                  className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 -translate-x-1/2 bg-amber-500"
+                  style={{ left: `${pacePct}%` }}
+                  title={`Ritmo realizado (${doneWork.toLocaleString("pt-BR")} ${workloadLabel})`}
+                />
+                <span
+                  className="pointer-events-none absolute top-5 z-20 -translate-x-1/2 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  style={{ left: `${pacePct}%` }}
+                >
+                  Ritmo
+                </span>
+              </>
+            ) : null}
 
-            <div className="relative z-10 flex h-full flex-col gap-1">
+            <div className="relative z-10 flex h-full flex-col">
               <div className="relative h-10 shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
                 <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
                   {formatDateShort(projectStartDate)}
@@ -714,65 +891,121 @@ function SprintGanttChart({
                 );
                 const width = Math.max(0.8, endPos - left);
                 const isComplete = sprint.done === sprint.total;
+                const flowBlocks = buildFlowBlocks(sprint);
+                const plannedBlocks = plannedCascadeBySprint.get(sprint.sprint) ?? [];
+                const rowHeight = getSprintRowHeight(sprint);
+                const plannedOffset =
+                  flowBlocks.length > 0
+                    ? flowBlocks.length * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP) + FLOW_GROUP_GAP
+                    : 0;
 
                 return (
                   <div
                     key={sprint.sprint}
-                    className="relative h-10 rounded-md border border-zinc-200/90 bg-white/50"
+                    className="relative rounded-md border border-zinc-200/90 bg-white/50"
+                    style={{ height: `${rowHeight}px` }}
                   >
-                    <div
-                      className="absolute inset-y-1 z-10 flex overflow-hidden rounded shadow-sm"
-                      style={{
-                        left: `${left}%`,
-                        width: `${width}%`,
-                        backgroundColor: color,
-                        minWidth: sprint.total > 0 ? "12px" : "6px",
-                      }}
-                      title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${
-                        unit === "storyPoints"
-                          ? `${sprint.totalPoints} pts`
-                          : `${sprint.total} tickets`
-                      }`}
-                    >
-                      {sprint.total > 0 ? (
-                        <>
-                          <TicketSegmentFill
-                            total={sprint.total}
-                            done={sprint.done}
-                            inProgress={sprint.inProgress}
-                            doneColor="rgba(0,0,0,0.35)"
-                            inProgressColor="rgba(255,255,255,0.45)"
-                            dividerClassName="border-white/35"
-                          />
-                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
-                            <span className="truncate text-[10px] font-bold text-white drop-shadow">
-                              {isComplete
-                                ? "Concluída"
-                                : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
+                    {viewMode === "flow" ? (
+                      <>
+                        {flowBlocks.map((block, blockIndex) => (
+                          <div
+                            key={block.key}
+                            className="absolute z-10 flex overflow-hidden rounded shadow-sm"
+                            style={{
+                              top: `${FLOW_PADDING_Y + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
+                              left: `${block.left}%`,
+                              width: `${block.width}%`,
+                              height: `${FLOW_BLOCK_HEIGHT}px`,
+                              backgroundColor: color,
+                              backgroundImage: block.isDone
+                                ? undefined
+                                : stripedGradient(color),
+                              minWidth: "10px",
+                              opacity: block.isDone ? 1 : 0.92,
+                            }}
+                            title={block.label}
+                          >
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                              <span className="truncate text-[10px] font-bold text-white drop-shadow">
+                                {compactTicketLabel(block.label)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {plannedBlocks.map((block, blockIndex) => (
+                          <div
+                            key={`pending-${block.key}`}
+                            className="absolute z-10 flex overflow-hidden rounded border border-dashed border-white/80 shadow-sm"
+                            style={{
+                              top: `${FLOW_PADDING_Y + plannedOffset + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
+                              left: `${block.left}%`,
+                              width: `${block.width}%`,
+                              height: `${FLOW_BLOCK_HEIGHT}px`,
+                              backgroundColor: color,
+                              backgroundImage: stripedGradient(color),
+                              minWidth: "10px",
+                              opacity: 0.55,
+                            }}
+                            title={`${block.label} · A fazer · ${block.points} pts`}
+                          >
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                              <span className="truncate text-[10px] font-bold text-white drop-shadow">
+                                {compactTicketLabel(block.label)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {flowBlocks.length === 0 && plannedBlocks.length === 0 ? (
+                          <div className="absolute inset-0 z-10 flex items-center rounded border border-dashed border-zinc-300 px-2">
+                            <span className="truncate text-[10px] font-semibold text-zinc-500">
+                              Sem tickets em fluxo
                             </span>
                           </div>
-                        </>
-                      ) : null}
-                    </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div
+                        className="absolute z-10 flex overflow-hidden rounded shadow-sm"
+                        style={{
+                          top: "4px",
+                          bottom: "4px",
+                          left: `${left}%`,
+                          width: `${width}%`,
+                          backgroundColor: color,
+                          minWidth: sprint.total > 0 ? "12px" : "6px",
+                        }}
+                        title={`${formatDateShort(sprint.projectedStartDate)} → ${formatDateShort(sprint.projectedEndDate)} · ${
+                          unit === "storyPoints"
+                            ? `${sprint.totalPoints} pts`
+                            : `${sprint.total} tickets`
+                        }`}
+                      >
+                        {sprint.total > 0 ? (
+                          <>
+                            <TicketSegmentFill
+                              total={sprint.total}
+                              done={sprint.done}
+                              inProgress={sprint.inProgress}
+                              doneColor="rgba(0,0,0,0.35)"
+                              inProgressColor="rgba(255,255,255,0.45)"
+                              dividerClassName="border-white/35"
+                            />
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                              <span className="truncate text-[10px] font-bold text-white drop-shadow">
+                                {isComplete
+                                  ? "Concluída"
+                                  : `${formatDateShort(sprint.projectedStartDate)} – ${formatDateShort(sprint.projectedEndDate)}`}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
-
-          {sprints.map((sprint, index) => (
-            <div
-              key={`label-${sprint.sprint}`}
-              className="flex h-10 flex-col justify-center pr-1"
-              style={{ gridColumn: 1, gridRow: index + 2 }}
-            >
-              <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
-              <p className="text-[10px] font-medium text-zinc-500">
-                {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
-                {workloadLabel} · {sprint.projectedDurationDays}d
-              </p>
-            </div>
-          ))}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-4 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
@@ -787,8 +1020,20 @@ function SprintGanttChart({
           <span>
             <strong className="text-zinc-800">Velocidade:</strong> {velocityLabel}
           </span>
+          {paceDate ? (
+            <span>
+              <strong className="text-zinc-800">Marco de ritmo:</strong>{" "}
+              {formatDateShort(paceDate)}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+function compactTicketLabel(ticketKey: string) {
+  const parts = ticketKey.split("-");
+  const suffix = parts[parts.length - 1];
+  return suffix ?? ticketKey;
 }

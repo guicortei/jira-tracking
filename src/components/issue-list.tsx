@@ -36,7 +36,7 @@ type SortKey =
 
 type SortDirection = "asc" | "desc";
 const DEFAULT_SORT_KEY: SortKey = "status";
-const DEFAULT_SORT_DIRECTION: SortDirection = "asc";
+const DEFAULT_SORT_DIRECTION: SortDirection = "desc";
 
 const columns: { key: SortKey; label: string; className?: string }[] = [
   { key: "key", label: "Ticket", className: "min-w-[120px] whitespace-nowrap" },
@@ -248,7 +248,7 @@ function SortableHeader({
   };
 
   return (
-    <th className={`relative px-3 py-2 text-xs font-medium ${className ?? ""}`}>
+    <th className={`sticky top-0 z-20 bg-zinc-50 px-3 py-2 text-xs font-medium ${className ?? ""}`}>
       <div className="inline-flex items-center gap-1.5">
         <button
           type="button"
@@ -676,7 +676,7 @@ export function IssueList({
     <div
       className={
         compactHeader
-          ? "relative left-1/2 w-screen -translate-x-1/2 space-y-4 px-3 sm:px-5 lg:px-8"
+          ? "relative left-1/2 right-1/2 -mx-[50vw] w-screen space-y-4 px-3 sm:px-5 lg:px-8"
           : "space-y-4"
       }
     >
@@ -728,15 +728,15 @@ export function IssueList({
           Nenhum ticket encontrado neste projeto.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+        <div className="rounded-xl border border-zinc-200 bg-white">
           {linkedError ? (
             <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
               {linkedError}
             </div>
           ) : null}
-          <div className="overflow-x-auto">
+          <div className="max-h-[72vh] overflow-auto">
             <table className="min-w-full text-left text-xs">
-              <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+              <thead className="sticky top-0 z-20 border-b border-zinc-200 bg-zinc-50 text-zinc-600 shadow-[0_3px_8px_rgba(0,0,0,0.08)]">
                 <tr>
                   {columns.map((column) => (
                     <SortableHeader
