@@ -423,7 +423,10 @@ function IssueRow({
   const hasDependencies = issue.linkedIssues.length > 0;
 
   return (
-    <tr className={isLinked ? "bg-zinc-100/80 hover:bg-zinc-100" : "hover:bg-zinc-50"}>
+    <tr
+      data-issue-key={issue.key}
+      className={isLinked ? "bg-zinc-100/80 hover:bg-zinc-100" : "hover:bg-zinc-50"}
+    >
       <td className="whitespace-nowrap px-3 py-2 font-medium text-blue-600">
         <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * 16}px` }}>
           {hasDependencies ? (

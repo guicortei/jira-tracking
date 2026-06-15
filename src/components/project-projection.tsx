@@ -450,6 +450,7 @@ export function ProjectProjectionPanel({
             unit="storyPoints"
             velocityPerDay={projection.velocity.throughputPerDay}
             averageCycleDays={projection.velocity.medianCycleDays}
+            averageCycleDaysPerPoint={projection.velocity.cycleDaysPerPoint}
             issuesBySprint={issuesBySprint}
             project={project}
             viewMode={storyChartMode}
@@ -480,6 +481,7 @@ export function ProjectProjectionPanel({
               unit="tickets"
               velocityPerDay={altProjection.velocity.throughputPerDay}
               averageCycleDays={altProjection.velocity.medianCycleDays}
+              averageCycleDaysPerPoint={altProjection.velocity.cycleDaysPerPoint}
               issuesBySprint={issuesBySprint}
               project={project}
               viewMode="projection"
@@ -665,6 +667,7 @@ function SprintGanttChart({
   unit,
   velocityPerDay,
   averageCycleDays,
+  averageCycleDaysPerPoint,
   issuesBySprint,
   project,
   viewMode = "projection",
@@ -677,6 +680,7 @@ function SprintGanttChart({
   unit: ProjectionUnit;
   velocityPerDay: number;
   averageCycleDays: number;
+  averageCycleDaysPerPoint?: number;
   issuesBySprint?: Map<number, JiraIssue[]>;
   project: JiraProject;
   viewMode?: "projection" | "flow";
@@ -727,6 +731,7 @@ function SprintGanttChart({
     const nowMs = dateToMs(nowIso);
     let cursorMs = Math.max(nowMs, startMs);
     const cycleDays = Math.max(0.5, averageCycleDays || 1);
+    const cycleDaysPerPoint = Math.max(0.25, averageCycleDaysPerPoint ?? 1);
 
     for (let index = firstIncompleteSprintIndex; index < sprints.length; index += 1) {
       const sprint = sprints[index];
@@ -750,9 +755,11 @@ function SprintGanttChart({
         const estimatedDays = points / rate;
         const projectedEndMs = cursorMs + estimatedDays * 86400000;
         const blockEndMs = projectedEndMs;
+        const projectedCycleDaysByPoints = points > 0 ? points * cycleDaysPerPoint : cycleDays;
+        const projectedCycleDays = Math.max(0.25, projectedCycleDaysByPoints);
         const blockStartMs = isInProgress && issue.workStartedAt
           ? dateToMs(issue.workStartedAt)
-          : blockEndMs - cycleDays * 86400000;
+          : blockEndMs - projectedCycleDays * 86400000;
         cursorMs = blockEndMs;
 
         const left = positionOnTimeline(new Date(blockStartMs).toISOString(), startMs, endMs);
@@ -778,6 +785,7 @@ function SprintGanttChart({
     return cascade;
   }, [
     averageCycleDays,
+    averageCycleDaysPerPoint,
     endMs,
     firstIncompleteSprintIndex,
     issuesBySprint,
@@ -817,6 +825,8 @@ function SprintGanttChart({
             left: startPct,
             width: flowWidth,
             isDone,
+            statusLabel: isDone ? "Feito" : "Em andamento",
+            issue,
           };
         })
         .sort((a, b) => {
@@ -828,6 +838,23 @@ function SprintGanttChart({
     },
     [endMs, issuesBySprint, nowIso, startMs, viewMode],
   );
+
+  const focusIssueInTicketList = useCallback((issueKey: string) => {
+    const row = document.querySelector<HTMLElement>(`[data-issue-key="${issueKey}"]`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    const previousOutline = row.style.outline;
+    const previousOutlineOffset = row.style.outlineOffset;
+    const previousBackgroundColor = row.style.backgroundColor;
+    row.style.outline = "2px solid #60a5fa";
+    row.style.outlineOffset = "-2px";
+    row.style.backgroundColor = "#eff6ff";
+    window.setTimeout(() => {
+      row.style.outline = previousOutline;
+      row.style.outlineOffset = previousOutlineOffset;
+      row.style.backgroundColor = previousBackgroundColor;
+    }, 1600);
+  }, []);
 
   const getSprintRowHeight = useCallback(
     (sprint: SprintProjection) => {
@@ -938,7 +965,8 @@ function SprintGanttChart({
                         {flowBlocks.map((block, blockIndex) => (
                           <div
                             key={block.key}
-                            className="absolute z-10 flex overflow-hidden rounded shadow-sm"
+                            className="group absolute z-10 flex cursor-pointer rounded shadow-sm hover:z-50"
+                            onClick={() => focusIssueInTicketList(block.issue.key)}
                             style={{
                               top: `${FLOW_PADDING_Y + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
                               left: `${block.left}%`,
@@ -951,19 +979,24 @@ function SprintGanttChart({
                               minWidth: "10px",
                               opacity: block.isDone ? 1 : 0.92,
                             }}
-                            title={block.label}
                           >
                             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
                               <span className="truncate text-[10px] font-bold text-white drop-shadow">
                                 {compactTicketLabel(block.label)}
                               </span>
                             </div>
+                            <ProjectedTicketTooltip
+                              issue={block.issue}
+                              project={project}
+                              statusLabel={block.statusLabel}
+                            />
                           </div>
                         ))}
                         {plannedBlocks.map((block, blockIndex) => (
                           <div
                             key={`pending-${block.key}-${blockIndex}`}
-                            className="group absolute z-10 flex rounded border border-dashed border-white/80 shadow-sm hover:z-50"
+                            className="group absolute z-10 flex cursor-pointer rounded border border-dashed border-white/80 shadow-sm hover:z-50"
+                            onClick={() => focusIssueInTicketList(block.issue.key)}
                             style={{
                               top: `${FLOW_PADDING_Y + plannedOffset + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
                               left: `${block.left}%`,

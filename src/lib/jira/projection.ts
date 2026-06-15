@@ -77,6 +77,32 @@ function computeVelocity(
       (sum, issue) => sum + issuePoints(issue),
       0,
     );
+    const cycleDaysPerPointSamples = completedWithPoints
+      .map((issue) => {
+        const cycle = issue.daysCycleTime ?? issue.daysToResolve;
+        if (cycle === null || cycle <= 1) return null;
+        const points = issuePoints(issue);
+        if (points <= 0) return null;
+        return cycle / points;
+      })
+      .filter((value): value is number => value !== null);
+    const fallbackCycleDaysPerPointSamples = completedWithPoints
+      .map((issue) => {
+        const cycle = issue.daysCycleTime ?? issue.daysToResolve;
+        if (cycle === null || cycle <= 0) return null;
+        const points = issuePoints(issue);
+        if (points <= 0) return null;
+        return cycle / points;
+      })
+      .filter((value): value is number => value !== null);
+    const cycleDaysPerPoint = Math.max(
+      0.25,
+      median(
+        cycleDaysPerPointSamples.length > 0
+          ? cycleDaysPerPointSamples
+          : fallbackCycleDaysPerPointSamples,
+      ) || 1,
+    );
 
     if (completedWithPoints.length === 0) {
       return {
@@ -84,6 +110,7 @@ function computeVelocity(
         unit,
         medianDaysToResolve: medianCycleDays || 5,
         medianCycleDays: medianCycleDays || 5,
+        cycleDaysPerPoint: 1,
         sampleSize: 0,
         windowDays: elapsedDaysWindow,
         pointsDelivered: 0,
@@ -95,6 +122,7 @@ function computeVelocity(
       unit,
       medianDaysToResolve: medianCycleDays || 5,
       medianCycleDays: medianCycleDays || 5,
+      cycleDaysPerPoint,
       sampleSize: completedWithPoints.length,
       windowDays: elapsedDaysWindow,
       pointsDelivered,
@@ -345,6 +373,9 @@ function buildProjection(
         : "Cenário por story points entregues por dia (pontos proporcionais ao esforço).",
       `Início do projeto: ${formatDatePt(projectStart)} (menor data de início de trabalho via changelog).`,
       `Velocidade estimada: ${throughputLabel} (${sampleLabel}).`,
+      unit === "storyPoints"
+        ? `Cycle-time por ponto: ${velocity.cycleDaysPerPoint?.toFixed(2) ?? "1.00"} dia(s)/pt (amostra com cycle-time > 1 dia).`
+        : "Cycle-time por ponto não aplicado no cenário por tickets.",
       `Cada sprint é um bloco sequencial: ${durationRule}; a próxima sprint começa quando a anterior termina.`,
       `Mediana de cycle time: ${velocity.medianCycleDays.toFixed(1)} dias (saída de "A Fazer" até conclusão).`,
       `Faixa de término: otimista ${formatDatePt(optimistic.projectEndDate)}, pessimista ${formatDatePt(pessimistic.projectEndDate)}.`,

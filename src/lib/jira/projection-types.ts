@@ -51,6 +51,8 @@ export type ProjectProjection = {
     unit: ProjectionUnit;
     medianDaysToResolve: number;
     medianCycleDays: number;
+    /** Mediana de cycle-time por story point (considera ciclos > 1 dia) */
+    cycleDaysPerPoint?: number;
     sampleSize: number;
     windowDays: number;
     /** Story points entregues na janela (apenas modo storyPoints) */
