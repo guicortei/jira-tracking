@@ -886,7 +886,7 @@ function SprintGanttChart({
             >
               Hoje
             </span>
-            <div className="relative z-10 flex h-full flex-col">
+            <div className="relative flex h-full flex-col">
               <div className="relative h-10 shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
                 <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
                   {formatDateShort(projectStartDate)}
