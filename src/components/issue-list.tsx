@@ -9,6 +9,7 @@ import {
 } from "@/components/status-timeline";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type IssueListProps = {
   project: JiraProject;
@@ -211,6 +212,10 @@ function SortableHeader({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
 
   const hasActiveFilter = selectedFilterValues.length !== filterOptions.length;
   const selectedSet = useMemo(
@@ -227,14 +232,32 @@ function SortableHeader({
 
   useEffect(() => {
     if (!isOpen) return;
+    const updatePosition = () => {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 4,
+        left: Math.max(8, rect.right - 256),
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
     const onPointerDown = (event: MouseEvent) => {
       if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
+      if (
+        !menuRef.current.contains(event.target as Node) &&
+        !triggerRef.current?.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     };
     document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
   }, [isOpen]);
 
   const toggleOption = (value: string) => {
@@ -261,6 +284,7 @@ function SortableHeader({
           </span>
         </button>
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => {
             setSearch("");
@@ -277,54 +301,58 @@ function SortableHeader({
         </button>
       </div>
 
-      {isOpen ? (
-        <div
-          ref={menuRef}
-          className="absolute right-0 top-full z-30 mt-1 w-64 rounded-md border border-zinc-200 bg-white p-2 text-zinc-700 shadow-xl"
-        >
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar valores..."
-            className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-blue-400"
-          />
-          <div className="mb-2 flex gap-1">
-            <button
-              type="button"
-              onClick={() => onFilterChange(sortKey, [...filterOptions])}
-              className="rounded border border-zinc-300 px-2 py-1 text-[10px] hover:bg-zinc-100"
+      {isOpen && menuPosition
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="fixed z-[1000] w-64 rounded-md border border-zinc-200 bg-white p-2 text-zinc-700 shadow-xl"
+              style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
             >
-              Select all
-            </button>
-            <button
-              type="button"
-              onClick={() => onFilterChange(sortKey, [])}
-              className="rounded border border-zinc-300 px-2 py-1 text-[10px] hover:bg-zinc-100"
-            >
-              Deselect all
-            </button>
-          </div>
-          <div className="max-h-56 space-y-1 overflow-y-auto rounded border border-zinc-200 p-1">
-            {visibleOptions.length > 0 ? (
-              visibleOptions.map((option) => (
-                <label
-                  key={`${sortKey}-${option}`}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-zinc-50"
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar valores..."
+                className="mb-2 w-full rounded border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-blue-400"
+              />
+              <div className="mb-2 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => onFilterChange(sortKey, [...filterOptions])}
+                  className="rounded border border-zinc-300 px-2 py-1 text-[10px] hover:bg-zinc-100"
                 >
-                  <input
-                    type="checkbox"
-                    checked={selectedSet.has(option)}
-                    onChange={() => toggleOption(option)}
-                  />
-                  <span className="truncate">{option}</span>
-                </label>
-              ))
-            ) : (
-              <p className="px-1 py-2 text-[11px] text-zinc-500">Nenhum valor encontrado.</p>
-            )}
-          </div>
-        </div>
-      ) : null}
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFilterChange(sortKey, [])}
+                  className="rounded border border-zinc-300 px-2 py-1 text-[10px] hover:bg-zinc-100"
+                >
+                  Deselect all
+                </button>
+              </div>
+              <div className="max-h-56 space-y-1 overflow-y-auto rounded border border-zinc-200 p-1">
+                {visibleOptions.length > 0 ? (
+                  visibleOptions.map((option) => (
+                    <label
+                      key={`${sortKey}-${option}`}
+                      className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-zinc-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(option)}
+                        onChange={() => toggleOption(option)}
+                      />
+                      <span className="truncate">{option}</span>
+                    </label>
+                  ))
+                ) : (
+                  <p className="px-1 py-2 text-[11px] text-zinc-500">Nenhum valor encontrado.</p>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </th>
   );
 }

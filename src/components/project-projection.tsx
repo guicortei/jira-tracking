@@ -1,12 +1,13 @@
 "use client";
 
+import { AssigneeBadge } from "@/components/assignee-badge";
 import {
   DualProgressBar,
   TicketSegmentFill,
   stripedGradient,
 } from "@/components/dual-progress-bar";
 import { SprintSummaryCard } from "@/components/sprint-summary-card";
-import { normalizeStatus } from "@/components/status-timeline";
+import { StatusTimeline, normalizeStatus } from "@/components/status-timeline";
 import type {
   CheckoutProjections,
   ProjectionUnit,
@@ -450,6 +451,7 @@ export function ProjectProjectionPanel({
             velocityPerDay={projection.velocity.throughputPerDay}
             averageCycleDays={projection.velocity.medianCycleDays}
             issuesBySprint={issuesBySprint}
+            project={project}
             viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
             estimatedEndDate={projection.timeline.estimatedEndDate}
@@ -479,6 +481,7 @@ export function ProjectProjectionPanel({
               velocityPerDay={altProjection.velocity.throughputPerDay}
               averageCycleDays={altProjection.velocity.medianCycleDays}
               issuesBySprint={issuesBySprint}
+              project={project}
               viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
               estimatedEndDate={altProjection.timeline.estimatedEndDate}
@@ -663,6 +666,7 @@ function SprintGanttChart({
   velocityPerDay,
   averageCycleDays,
   issuesBySprint,
+  project,
   viewMode = "projection",
   projectStartDate,
   estimatedEndDate,
@@ -674,6 +678,7 @@ function SprintGanttChart({
   velocityPerDay: number;
   averageCycleDays: number;
   issuesBySprint?: Map<number, JiraIssue[]>;
+  project: JiraProject;
   viewMode?: "projection" | "flow";
   projectStartDate: string;
   estimatedEndDate: string;
@@ -711,6 +716,8 @@ function SprintGanttChart({
         width: number;
         points: number;
         statusLabel: string;
+        isInProgress: boolean;
+        issue: JiraIssue;
       }>
     >();
 
@@ -737,12 +744,13 @@ function SprintGanttChart({
 
       const blocks = pendingIssues.map((issue) => {
         const statusNormalized = normalizeStatus(issue.status);
+        const isInProgress = statusNormalized !== "A FAZER";
         const points = Math.max(issue.storyPoints ?? 1, 0);
         const rate = Math.max(velocityPerDay, 0.1);
         const estimatedDays = points / rate;
         const projectedEndMs = cursorMs + estimatedDays * 86400000;
         const blockEndMs = projectedEndMs;
-        const blockStartMs = issue.workStartedAt
+        const blockStartMs = isInProgress && issue.workStartedAt
           ? dateToMs(issue.workStartedAt)
           : blockEndMs - cycleDays * 86400000;
         cursorMs = blockEndMs;
@@ -759,6 +767,8 @@ function SprintGanttChart({
           points,
           statusLabel:
             statusNormalized === "A FAZER" ? "A fazer" : "Em andamento (projetado)",
+          isInProgress,
+          issue,
         };
       });
 
@@ -953,23 +963,33 @@ function SprintGanttChart({
                         {plannedBlocks.map((block, blockIndex) => (
                           <div
                             key={`pending-${block.key}-${blockIndex}`}
-                            className="absolute z-10 flex overflow-hidden rounded border border-dashed border-white/80 shadow-sm"
+                            className="group absolute z-10 flex rounded border border-dashed border-white/80 shadow-sm hover:z-50"
                             style={{
                               top: `${FLOW_PADDING_Y + plannedOffset + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
                               left: `${block.left}%`,
                               width: `${block.width}%`,
                               height: `${FLOW_BLOCK_HEIGHT}px`,
-                              backgroundColor: color,
-                              backgroundImage: stripedGradient(color),
-                              opacity: 0.55,
                             }}
-                            title={`${block.label} · ${block.statusLabel} · ${block.points} pts`}
                           >
-                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
+                            <div
+                              className="absolute inset-0 rounded"
+                              style={{
+                                backgroundColor: color,
+                                backgroundImage: stripedGradient(color),
+                                opacity: block.isInProgress ? 0.92 : 0.55,
+                              }}
+                              aria-hidden
+                            />
+                            <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden rounded px-1">
                               <span className="truncate text-[10px] font-bold text-white drop-shadow">
                                 {compactTicketLabel(block.label)}
                               </span>
                             </div>
+                            <ProjectedTicketTooltip
+                              issue={block.issue}
+                              project={project}
+                              statusLabel={block.statusLabel}
+                            />
                           </div>
                         ))}
                         {flowBlocks.length === 0 && plannedBlocks.length === 0 ? (
@@ -1047,4 +1067,51 @@ function compactTicketLabel(ticketKey: string) {
   const parts = ticketKey.split("-");
   const suffix = parts[parts.length - 1];
   return suffix ?? ticketKey;
+}
+
+function ProjectedTicketTooltip({
+  issue,
+  project,
+  statusLabel,
+}: {
+  issue: JiraIssue;
+  project: JiraProject;
+  statusLabel: string;
+}) {
+  return (
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-80 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-2.5 text-left opacity-0 shadow-xl ring-1 ring-black/5 transition-opacity duration-150 group-hover:opacity-100">
+      <div className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-zinc-200 bg-white" />
+
+      <div className="mb-1.5 flex items-start gap-1.5">
+        <a
+          href={`${project.siteUrl}/browse/${issue.key}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pointer-events-auto shrink-0 pt-px text-[10px] font-bold leading-snug text-blue-600 hover:underline"
+        >
+          {issue.key}
+        </a>
+        {issue.storyPoints !== null ? (
+          <span
+            className="shrink-0 rounded border border-zinc-200 bg-white px-1 py-px text-[9px] font-black leading-none tabular-nums text-zinc-700"
+            title="Story points"
+          >
+            {issue.storyPoints}
+          </span>
+        ) : null}
+        <p className="min-w-0 flex-1 break-words text-[10px] leading-snug text-zinc-700">
+          {issue.summary}
+        </p>
+        {issue.assignee ? (
+          <AssigneeBadge name={issue.assignee} className="pt-px" />
+        ) : null}
+      </div>
+
+      <div className="mb-1.5">
+        <StatusTimeline status={issue.status} inline />
+      </div>
+
+      <p className="text-[9px] font-semibold text-zinc-500">{statusLabel}</p>
+    </div>
+  );
 }
