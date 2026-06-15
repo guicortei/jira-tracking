@@ -21,6 +21,12 @@ function formatDateShort(value: string) {
   }).format(new Date(value));
 }
 
+function formatDays(value: number) {
+  return value.toLocaleString("pt-BR", {
+    maximumFractionDigits: 1,
+  });
+}
+
 function issueLeftBarStyle(
   status: string,
   sprintColor: string,
@@ -148,7 +154,7 @@ export function SprintSummaryCard({
         <div className="border-t border-zinc-200 bg-white px-2.5 py-2">
           <p className="mb-2 text-[10px] font-medium text-zinc-500">
             {formatDateShort(sprint.projectedStartDate)} →{" "}
-            {formatDateShort(sprint.projectedEndDate)} · {sprint.projectedDurationDays}d
+            {formatDateShort(sprint.projectedEndDate)} · {formatDays(sprint.projectedDurationDays)}d
           </p>
 
           {issuesLoading ? (

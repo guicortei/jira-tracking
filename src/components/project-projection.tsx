@@ -57,13 +57,20 @@ function formatPct(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function dateToMs(value: string) {
-  return new Date(value).getTime();
+function formatRate(value: number) {
+  return value.toLocaleString("pt-BR", {
+    maximumFractionDigits: 2,
+  });
 }
 
-function daysFromStartToDate(startDate: string, daysFromStart: number) {
-  const baseMs = dateToMs(startDate);
-  return new Date(baseMs + daysFromStart * 86400000).toISOString();
+function formatDays(value: number) {
+  return value.toLocaleString("pt-BR", {
+    maximumFractionDigits: 1,
+  });
+}
+
+function dateToMs(value: string) {
+  return new Date(value).getTime();
 }
 
 function positionOnTimeline(date: string, startMs: number, endMs: number) {
@@ -307,8 +314,8 @@ export function ProjectProjectionPanel({
             />
             <KpiCard
               label="Velocidade"
-              value={`${projection.velocity.throughputPerDay} pts/dia`}
-              detail={`${altProjection.velocity.throughputPerDay} tk/dia · mediana ${projection.velocity.medianCycleDays}d (cycle time)`}
+              value={`${formatRate(projection.velocity.throughputPerDay)} pts/dia`}
+              detail={`${formatRate(altProjection.velocity.throughputPerDay)} tk/dia · mediana ${formatDays(projection.velocity.medianCycleDays)}d (cycle time)`}
               borderColor="#7c3aed"
               bgColor="#f5f3ff"
             />
@@ -322,7 +329,7 @@ export function ProjectProjectionPanel({
             <KpiCard
               label="Base da estimativa"
               value={String(projection.velocity.sampleSize)}
-              detail={`${projection.velocity.pointsDelivered ?? 0} pts entregues em ${projection.velocity.windowDays} dia(s)`}
+              detail={`${projection.velocity.pointsDelivered ?? 0} pts entregues em ${formatDays(projection.velocity.windowDays)} dia(s)`}
               borderColor="#0891b2"
               bgColor="#ecfeff"
             />
@@ -344,7 +351,7 @@ export function ProjectProjectionPanel({
               <ForecastCard
                 label="Estimado"
                 date={formatDateLong(projection.projection.estimatedDate)}
-                sub={`${projection.projection.remainingDays} dias restantes`}
+                sub={`${formatDays(projection.projection.remainingDays)} dias restantes`}
                 color="#1d4ed8"
                 bg="#dbeafe"
                 highlight
@@ -427,21 +434,21 @@ export function ProjectProjectionPanel({
             <strong className="font-semibold">
               {formatDateShort(projection.timeline.projectStartDate)}
             </strong>
-            , velocidade de {projection.velocity.throughputPerDay} pts/dia (
+            , velocidade de {formatRate(projection.velocity.throughputPerDay)} pts/dia (
             {projection.velocity.pointsDelivered ?? 0} pts já entregues). Cada sprint só começa
             quando a anterior termina.
           </p>
           <p className="mb-4 text-xs text-zinc-500">
             {storyChartMode === "projection"
-              ? "Barra segmentada por ticket (progresso real) · linha vermelha = hoje · linha âmbar = ritmo realizado"
-              : "Modo fluxo real: cada bloco de ticket vai de Fazendo até Feito (ou Hoje se ainda não concluído) · linha vermelha = hoje · linha âmbar = ritmo realizado"}
+              ? "Barra segmentada por ticket (progresso real) · linha vermelha = hoje"
+              : "Modo fluxo real: cada bloco de ticket vai de Fazendo até Feito (ou Hoje se ainda não concluído) · linha vermelha = hoje"}
           </p>
 
           <SprintGanttChart
             sprints={projection.sprints}
             unit="storyPoints"
             velocityPerDay={projection.velocity.throughputPerDay}
-            doneWork={projection.overall.donePoints}
+            averageCycleDays={projection.velocity.medianCycleDays}
             issuesBySprint={issuesBySprint}
             viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
@@ -457,21 +464,20 @@ export function ProjectProjectionPanel({
               Cronograma por sprint — velocidade em tickets ▸
             </span>
             <span className="mt-1 block text-sm font-normal text-zinc-600">
-              Cenário alternativo ({altProjection.velocity.throughputPerDay} tickets/dia) · término{" "}
+              Cenário alternativo ({formatRate(altProjection.velocity.throughputPerDay)} tickets/dia) · término{" "}
               {formatDateShort(altProjection.projection.estimatedDate)}
             </span>
           </summary>
           <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
             <p className="mb-4 text-xs text-zinc-500">
-              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje · linha
-              âmbar = ritmo realizado
+              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
             </p>
 
             <SprintGanttChart
               sprints={altProjection.sprints}
               unit="tickets"
               velocityPerDay={altProjection.velocity.throughputPerDay}
-              doneWork={altProjection.overall.done}
+              averageCycleDays={altProjection.velocity.medianCycleDays}
               issuesBySprint={issuesBySprint}
               viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
@@ -655,7 +661,7 @@ function SprintGanttChart({
   sprints,
   unit,
   velocityPerDay,
-  doneWork,
+  averageCycleDays,
   issuesBySprint,
   viewMode = "projection",
   projectStartDate,
@@ -666,7 +672,7 @@ function SprintGanttChart({
   sprints: SprintProjection[];
   unit: ProjectionUnit;
   velocityPerDay: number;
-  doneWork: number;
+  averageCycleDays: number;
   issuesBySprint?: Map<number, JiraIssue[]>;
   viewMode?: "projection" | "flow";
   projectStartDate: string;
@@ -676,15 +682,10 @@ function SprintGanttChart({
 }) {
   const workloadLabel = unit === "storyPoints" ? "pts" : "tk";
   const velocityLabel =
-    unit === "storyPoints" ? `${velocityPerDay} pts/dia` : `${velocityPerDay} tickets/dia`;
+    unit === "storyPoints"
+      ? `${formatRate(velocityPerDay)} pts/dia`
+      : `${formatRate(velocityPerDay)} tickets/dia`;
   const todayPct = positionOnTimeline(new Date().toISOString(), startMs, endMs);
-  const paceDaysFromStart = velocityPerDay > 0 ? doneWork / velocityPerDay : null;
-  const paceDate =
-    paceDaysFromStart !== null
-      ? daysFromStartToDate(projectStartDate, paceDaysFromStart)
-      : null;
-  const pacePct =
-    paceDate !== null ? positionOnTimeline(paceDate, startMs, endMs) : null;
   const nowIso = new Date().toISOString();
   const monthTicks = useMemo(
     () => buildMonthTicks(startMs, endMs),
@@ -703,31 +704,52 @@ function SprintGanttChart({
   const plannedCascadeBySprint = useMemo(() => {
     const cascade = new Map<
       number,
-      Array<{ key: string; label: string; left: number; width: number; points: number }>
+      Array<{
+        key: string;
+        label: string;
+        left: number;
+        width: number;
+        points: number;
+        statusLabel: string;
+      }>
     >();
 
     if (viewMode !== "flow" || unit !== "storyPoints") return cascade;
     if (firstIncompleteSprintIndex < 0 || velocityPerDay <= 0) return cascade;
 
-    let cursorMs = Math.max(dateToMs(nowIso), startMs);
+    const nowMs = dateToMs(nowIso);
+    let cursorMs = Math.max(nowMs, startMs);
+    const cycleDays = Math.max(0.5, averageCycleDays || 1);
 
     for (let index = firstIncompleteSprintIndex; index < sprints.length; index += 1) {
       const sprint = sprints[index];
       const issues = issuesBySprint?.get(sprint.sprint) ?? [];
-      const pendingIssues = issues.filter(
-        (issue) => !issue.workStartedAt && normalizeStatus(issue.status) === "A FAZER",
-      );
+      const inProgressIssues = issues
+        .filter((issue) => {
+          const status = normalizeStatus(issue.status);
+          return Boolean(issue.workStartedAt) && status !== "FEITO" && status !== "A FAZER";
+        })
+        .sort((a, b) => a.key.localeCompare(b.key));
+      const todoIssues = issues
+        .filter((issue) => normalizeStatus(issue.status) === "A FAZER")
+        .sort((a, b) => a.key.localeCompare(b.key));
+      const pendingIssues = [...new Map([...inProgressIssues, ...todoIssues].map((issue) => [issue.id, issue])).values()];
 
       const blocks = pendingIssues.map((issue) => {
-        const points = Math.max(issue.storyPoints ?? 1, 1);
-        const durationDays = points / velocityPerDay;
-        const blockStartMs = cursorMs;
-        const blockEndMs = blockStartMs + durationDays * 86400000;
+        const statusNormalized = normalizeStatus(issue.status);
+        const points = Math.max(issue.storyPoints ?? 1, 0);
+        const rate = Math.max(velocityPerDay, 0.1);
+        const estimatedDays = points / rate;
+        const projectedEndMs = cursorMs + estimatedDays * 86400000;
+        const blockEndMs = projectedEndMs;
+        const blockStartMs = issue.workStartedAt
+          ? dateToMs(issue.workStartedAt)
+          : blockEndMs - cycleDays * 86400000;
         cursorMs = blockEndMs;
 
         const left = positionOnTimeline(new Date(blockStartMs).toISOString(), startMs, endMs);
         const end = positionOnTimeline(new Date(blockEndMs).toISOString(), startMs, endMs);
-        const width = Math.max(0.6, end - left);
+        const width = Math.max(0, end - left);
 
         return {
           key: issue.id,
@@ -735,6 +757,8 @@ function SprintGanttChart({
           left,
           width,
           points,
+          statusLabel:
+            statusNormalized === "A FAZER" ? "A fazer" : "Em andamento (projetado)",
         };
       });
 
@@ -743,6 +767,7 @@ function SprintGanttChart({
 
     return cascade;
   }, [
+    averageCycleDays,
     endMs,
     firstIncompleteSprintIndex,
     issuesBySprint,
@@ -759,7 +784,11 @@ function SprintGanttChart({
       if (viewMode !== "flow") return [];
       const flowIssues = issuesBySprint?.get(sprint.sprint) ?? [];
       return flowIssues
-        .filter((issue) => issue.workStartedAt)
+        .filter((issue) => {
+          if (!issue.workStartedAt) return false;
+          const statusNormalized = normalizeStatus(issue.status);
+          return Boolean(issue.resolutionDate) || statusNormalized === "FEITO";
+        })
         .map((issue) => {
           const flowStart = issue.workStartedAt as string;
           const statusNormalized = normalizeStatus(issue.status);
@@ -780,7 +809,12 @@ function SprintGanttChart({
             isDone,
           };
         })
-        .sort((a, b) => a.left - b.left);
+        .sort((a, b) => {
+          if (a.isDone !== b.isDone) {
+            return a.isDone ? -1 : 1;
+          }
+          return a.left - b.left;
+        });
     },
     [endMs, issuesBySprint, nowIso, startMs, viewMode],
   );
@@ -822,7 +856,7 @@ function SprintGanttChart({
                 <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
                 <p className="text-[10px] font-medium text-zinc-500">
                   {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
-                  {workloadLabel} · {sprint.projectedDurationDays}d
+                  {workloadLabel} · {formatDays(sprint.projectedDurationDays)}d
                 </p>
               </div>
             ))}
@@ -842,22 +876,6 @@ function SprintGanttChart({
             >
               Hoje
             </span>
-            {pacePct !== null ? (
-              <>
-                <div
-                  className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 -translate-x-1/2 bg-amber-500"
-                  style={{ left: `${pacePct}%` }}
-                  title={`Ritmo realizado (${doneWork.toLocaleString("pt-BR")} ${workloadLabel})`}
-                />
-                <span
-                  className="pointer-events-none absolute top-5 z-20 -translate-x-1/2 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
-                  style={{ left: `${pacePct}%` }}
-                >
-                  Ritmo
-                </span>
-              </>
-            ) : null}
-
             <div className="relative z-10 flex h-full flex-col">
               <div className="relative h-10 shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
                 <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
@@ -934,7 +952,7 @@ function SprintGanttChart({
                         ))}
                         {plannedBlocks.map((block, blockIndex) => (
                           <div
-                            key={`pending-${block.key}`}
+                            key={`pending-${block.key}-${blockIndex}`}
                             className="absolute z-10 flex overflow-hidden rounded border border-dashed border-white/80 shadow-sm"
                             style={{
                               top: `${FLOW_PADDING_Y + plannedOffset + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
@@ -943,10 +961,9 @@ function SprintGanttChart({
                               height: `${FLOW_BLOCK_HEIGHT}px`,
                               backgroundColor: color,
                               backgroundImage: stripedGradient(color),
-                              minWidth: "10px",
                               opacity: 0.55,
                             }}
-                            title={`${block.label} · A fazer · ${block.points} pts`}
+                            title={`${block.label} · ${block.statusLabel} · ${block.points} pts`}
                           >
                             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1">
                               <span className="truncate text-[10px] font-bold text-white drop-shadow">
@@ -1020,12 +1037,6 @@ function SprintGanttChart({
           <span>
             <strong className="text-zinc-800">Velocidade:</strong> {velocityLabel}
           </span>
-          {paceDate ? (
-            <span>
-              <strong className="text-zinc-800">Marco de ritmo:</strong>{" "}
-              {formatDateShort(paceDate)}
-            </span>
-          ) : null}
         </div>
       </div>
     </div>

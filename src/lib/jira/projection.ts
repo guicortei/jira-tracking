@@ -20,7 +20,7 @@ function isNotStarted(status: string) {
 }
 
 function issuePoints(issue: JiraIssue) {
-  return issue.storyPoints ?? 0;
+  return issue.storyPoints ?? 1;
 }
 
 function median(values: number[]) {
@@ -33,9 +33,7 @@ function median(values: number[]) {
 }
 
 function addDays(date: Date, days: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + Math.ceil(days));
-  return result;
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 function toIsoDate(date: Date) {
@@ -49,13 +47,23 @@ function formatDatePt(date: Date) {
 function daysBetween(start: Date, end: Date) {
   const startMs = start.getTime();
   const endMs = end.getTime();
-  return Math.max(0, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+  return Math.max(0, (endMs - startMs) / (1000 * 60 * 60 * 24));
 }
 
-function computeVelocity(issues: JiraIssue[], unit: ProjectionUnit) {
+function computeVelocity(
+  issues: JiraIssue[],
+  unit: ProjectionUnit,
+  projectStart: Date,
+  now: Date,
+) {
   const completed = issues.filter(
     (issue) => isDone(issue.status) && issue.resolutionDate,
   );
+  const elapsedDays = Math.max(
+    1,
+    (now.getTime() - projectStart.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const elapsedDaysWindow = elapsedDays;
 
   const cycleDays = completed
     .map((issue) => issue.daysCycleTime ?? issue.daysToResolve)
@@ -65,85 +73,52 @@ function computeVelocity(issues: JiraIssue[], unit: ProjectionUnit) {
 
   if (unit === "storyPoints") {
     const completedWithPoints = completed.filter((issue) => issuePoints(issue) > 0);
-
-    if (completedWithPoints.length === 0) {
-      return {
-        throughputPerDay: 1,
-        unit,
-        medianDaysToResolve: medianCycleDays || 5,
-        medianCycleDays: medianCycleDays || 5,
-        sampleSize: 0,
-        windowDays: 0,
-        pointsDelivered: 0,
-      };
-    }
-
-    const resolutionDates = completedWithPoints.map(
-      (issue) => new Date(issue.resolutionDate!).getTime(),
-    );
-    const minDate = Math.min(...resolutionDates);
-    const maxDate = Math.max(...resolutionDates);
-    const windowDays = Math.max(
-      1,
-      Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)),
-    );
-
     const pointsDelivered = completedWithPoints.reduce(
       (sum, issue) => sum + issuePoints(issue),
       0,
     );
-    const throughputFromWindow = pointsDelivered / windowDays;
 
-    const pointRates = completedWithPoints.map((issue) => {
-      const days =
-        issue.daysCycleTime ?? issue.daysToResolve ?? (medianCycleDays || 5);
-      return days > 0 ? issuePoints(issue) / days : issuePoints(issue);
-    });
-    const medianPointRate = median(pointRates);
+    if (completedWithPoints.length === 0) {
+      return {
+        throughputPerDay: 0,
+        unit,
+        medianDaysToResolve: medianCycleDays || 5,
+        medianCycleDays: medianCycleDays || 5,
+        sampleSize: 0,
+        windowDays: elapsedDaysWindow,
+        pointsDelivered: 0,
+      };
+    }
 
     return {
-      throughputPerDay: Math.max(throughputFromWindow, medianPointRate * 0.5),
+      throughputPerDay: pointsDelivered / elapsedDays,
       unit,
       medianDaysToResolve: medianCycleDays || 5,
       medianCycleDays: medianCycleDays || 5,
       sampleSize: completedWithPoints.length,
-      windowDays,
+      windowDays: elapsedDaysWindow,
       pointsDelivered,
     };
   }
 
   if (completed.length === 0) {
     return {
-      throughputPerDay: 1,
+      throughputPerDay: 0,
       unit,
       medianDaysToResolve: medianCycleDays || 5,
       medianCycleDays: medianCycleDays || 5,
       sampleSize: 0,
-      windowDays: 0,
+      windowDays: elapsedDaysWindow,
     };
   }
 
-  const resolutionDates = completed.map(
-    (issue) => new Date(issue.resolutionDate!).getTime(),
-  );
-  const minDate = Math.min(...resolutionDates);
-  const maxDate = Math.max(...resolutionDates);
-  const windowDays = Math.max(
-    1,
-    Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)),
-  );
-
-  const throughputFromWindow = completed.length / windowDays;
-  const throughputFromMedian =
-    medianCycleDays > 0 ? 1 / medianCycleDays : 1;
-
   return {
-    throughputPerDay: Math.max(throughputFromWindow, throughputFromMedian * 0.5),
+    throughputPerDay: completed.length / elapsedDays,
     unit,
     medianDaysToResolve: medianCycleDays || 5,
     medianCycleDays: medianCycleDays || 5,
     sampleSize: completed.length,
-    windowDays,
+    windowDays: elapsedDaysWindow,
   };
 }
 
@@ -220,8 +195,7 @@ function scheduleSprintsSequentially(
     const summary = summarizeSprint(issues, sprint);
     const workload = sprintWorkload(summary, unit);
 
-    const durationDays =
-      workload > 0 ? Math.max(1, Math.ceil(workload / rate)) : 0;
+    const durationDays = workload > 0 ? workload / rate : 0;
     const start = new Date(cursor);
     const end = durationDays > 0 ? addDays(start, durationDays) : start;
 
@@ -252,8 +226,8 @@ function scheduleSprintsSequentially(
       notStartedPoints: summary.notStartedPoints,
       completionPct: summary.total > 0 ? summary.done / summary.total : 0,
       unlocked,
-      projectedDurationDays: Math.ceil(durationDays),
-      estimatedDaysRemaining: Math.max(0, Math.ceil(durationDays)),
+      projectedDurationDays: durationDays,
+      estimatedDaysRemaining: Math.max(0, durationDays),
       projectedStartDate: toIsoDate(start),
       projectedEndDate: toIsoDate(end),
     };
@@ -280,9 +254,9 @@ function buildProjection(
   projectName: string,
 ): ProjectProjection {
   const sprintIssues = issues.filter((issue) => issue.sprint !== null);
-  const velocity = computeVelocity(sprintIssues, unit);
   const now = new Date();
   const projectStart = getProjectWorkStartDate(sprintIssues, now);
+  const velocity = computeVelocity(sprintIssues, unit, projectStart, now);
 
   const optimistic = scheduleSprintsSequentially(
     sprintIssues,
@@ -330,8 +304,8 @@ function buildProjection(
 
   const sampleLabel =
     unit === "tickets"
-      ? `${velocity.sampleSize} conclusões nos últimos ${velocity.windowDays} dia(s)`
-      : `${velocity.pointsDelivered ?? 0} pts entregues em ${velocity.sampleSize} tickets nos últimos ${velocity.windowDays} dia(s)`;
+      ? `${velocity.sampleSize} conclusões acumuladas em ${velocity.windowDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dia(s) desde o início`
+      : `${velocity.pointsDelivered ?? 0} pts entregues em ${velocity.sampleSize} tickets ao longo de ${velocity.windowDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dia(s) desde o início`;
 
   return {
     projectKey: CHECKOUT_PROJECT_KEY,
@@ -350,7 +324,6 @@ function buildProjection(
     },
     velocity: {
       ...velocity,
-      throughputPerDay: Number(velocity.throughputPerDay.toFixed(2)),
     },
     timeline: {
       projectStartDate: toIsoDate(projectStart),
