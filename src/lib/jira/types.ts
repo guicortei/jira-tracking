@@ -29,6 +29,14 @@ export type JiraIssue = {
   daysInProgress: number | null;
   sprint: number | null;
   storyPoints: number | null;
+  linkedIssues: JiraLinkedIssue[];
+};
+
+export type JiraLinkedIssue = {
+  id: string;
+  key: string;
+  summary: string;
+  status: string;
 };
 
 export type JiraIssuesResponse = {

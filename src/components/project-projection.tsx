@@ -392,85 +392,87 @@ export function ProjectProjectionPanel({
         </div>
       </div>
 
-      {/* Cronograma — largura total */}
-      <section className="w-full rounded-2xl border-2 border-violet-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-bold text-zinc-900">
-          Cronograma por sprint — velocidade em story points
-        </h2>
-        <p className="mb-1 text-sm text-zinc-600">
-          Gantt sequencial: início em{" "}
-          <strong className="font-semibold">
-            {formatDateShort(projection.timeline.projectStartDate)}
-          </strong>
-          , velocidade de {projection.velocity.throughputPerDay} pts/dia (
-          {projection.velocity.pointsDelivered ?? 0} pts já entregues). Cada sprint só começa quando
-          a anterior termina.
-        </p>
-        <p className="mb-4 text-xs text-zinc-500">
-          Barra segmentada por ticket (progresso real) · linha vermelha = hoje
-        </p>
-
-        <SprintGanttChart
-          sprints={projection.sprints}
-          unit="storyPoints"
-          velocityPerDay={projection.velocity.throughputPerDay}
-          projectStartDate={projection.timeline.projectStartDate}
-          estimatedEndDate={projection.timeline.estimatedEndDate}
-          startMs={startMs}
-          endMs={endMs}
-        />
-      </section>
-
-      <details className="w-full rounded-2xl border-2 border-zinc-200 bg-white shadow-sm">
-        <summary className="cursor-pointer list-none px-5 py-4 [&::-webkit-details-marker]:hidden">
-          <span className="text-base font-bold text-zinc-900">
-            Cronograma por sprint — velocidade em tickets ▸
-          </span>
-          <span className="mt-1 block text-sm font-normal text-zinc-600">
-            Cenário alternativo ({altProjection.velocity.throughputPerDay} tickets/dia) ·
-            término {formatDateShort(altProjection.projection.estimatedDate)}
-          </span>
-        </summary>
-        <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
+      <div className="relative left-1/2 w-screen -translate-x-1/2 space-y-6 px-3 sm:px-5 lg:px-8">
+        {/* Cronograma — largura total */}
+        <section className="w-full rounded-2xl border-2 border-violet-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-bold text-zinc-900">
+            Cronograma por sprint — velocidade em story points
+          </h2>
+          <p className="mb-1 text-sm text-zinc-600">
+            Gantt sequencial: início em{" "}
+            <strong className="font-semibold">
+              {formatDateShort(projection.timeline.projectStartDate)}
+            </strong>
+            , velocidade de {projection.velocity.throughputPerDay} pts/dia (
+            {projection.velocity.pointsDelivered ?? 0} pts já entregues). Cada sprint só começa
+            quando a anterior termina.
+          </p>
           <p className="mb-4 text-xs text-zinc-500">
-            Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+            Barra segmentada por ticket (progresso real) · linha vermelha = hoje
           </p>
 
           <SprintGanttChart
-            sprints={altProjection.sprints}
-            unit="tickets"
-            velocityPerDay={altProjection.velocity.throughputPerDay}
-            projectStartDate={altProjection.timeline.projectStartDate}
-            estimatedEndDate={altProjection.timeline.estimatedEndDate}
-            startMs={altTimelineRange.startMs}
-            endMs={altTimelineRange.endMs}
+            sprints={projection.sprints}
+            unit="storyPoints"
+            velocityPerDay={projection.velocity.throughputPerDay}
+            projectStartDate={projection.timeline.projectStartDate}
+            estimatedEndDate={projection.timeline.estimatedEndDate}
+            startMs={startMs}
+            endMs={endMs}
           />
-        </div>
-      </details>
+        </section>
 
-      <details className="rounded-2xl border-2 border-zinc-200 bg-zinc-50">
-        <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-zinc-800">
-          Como a projeção é calculada ▾
-        </summary>
-        <div className="space-y-4 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
-          <div>
-            <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points (padrão)</h3>
-            <ul className="space-y-2">
-              {projection.assumptions.map((item) => (
-                <li key={`sp-${item}`}>• {item}</li>
-              ))}
-            </ul>
+        <details className="w-full rounded-2xl border-2 border-zinc-200 bg-white shadow-sm">
+          <summary className="cursor-pointer list-none px-5 py-4 [&::-webkit-details-marker]:hidden">
+            <span className="text-base font-bold text-zinc-900">
+              Cronograma por sprint — velocidade em tickets ▸
+            </span>
+            <span className="mt-1 block text-sm font-normal text-zinc-600">
+              Cenário alternativo ({altProjection.velocity.throughputPerDay} tickets/dia) · término{" "}
+              {formatDateShort(altProjection.projection.estimatedDate)}
+            </span>
+          </summary>
+          <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
+            <p className="mb-4 text-xs text-zinc-500">
+              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+            </p>
+
+            <SprintGanttChart
+              sprints={altProjection.sprints}
+              unit="tickets"
+              velocityPerDay={altProjection.velocity.throughputPerDay}
+              projectStartDate={altProjection.timeline.projectStartDate}
+              estimatedEndDate={altProjection.timeline.estimatedEndDate}
+              startMs={altTimelineRange.startMs}
+              endMs={altTimelineRange.endMs}
+            />
           </div>
-          <div>
-            <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
-            <ul className="space-y-2">
-              {altProjection.assumptions.map((item) => (
-                <li key={`tk-${item}`}>• {item}</li>
-              ))}
-            </ul>
+        </details>
+
+        <details className="rounded-2xl border-2 border-zinc-200 bg-zinc-50">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-bold text-zinc-800">
+            Como a projeção é calculada ▾
+          </summary>
+          <div className="space-y-4 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
+            <div>
+              <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points (padrão)</h3>
+              <ul className="space-y-2">
+                {projection.assumptions.map((item) => (
+                  <li key={`sp-${item}`}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
+              <ul className="space-y-2">
+                {altProjection.assumptions.map((item) => (
+                  <li key={`tk-${item}`}>• {item}</li>
+                ))}
+              </ul>
+            </div>
           </div>
-        </div>
-      </details>
+        </details>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { enrichIssuesWithChangelog } from "./changelog";
 import { daysBetween, getSiteBaseUrl, jiraFetch } from "./fetch";
-import type { JiraIssue, JiraProject } from "./types";
+import type { JiraIssue, JiraLinkedIssue, JiraProject } from "./types";
 
 const SPRINT_FIELD = "customfield_10220";
 const STORY_POINTS_FIELD = "customfield_10016";
@@ -21,10 +21,35 @@ type JiraSearchResponse = {
       project?: { key: string; name: string };
       customfield_10220?: number | null;
       customfield_10016?: number | null;
+      issuelinks?: JiraIssueLink[];
     };
   }>;
   isLast?: boolean;
   nextPageToken?: string;
+};
+
+type JiraIssueLink = {
+  type?: {
+    name?: string | null;
+    inward?: string | null;
+    outward?: string | null;
+  };
+  inwardIssue?: {
+    id: string;
+    key: string;
+    fields?: {
+      summary?: string;
+      status?: { name: string };
+    };
+  };
+  outwardIssue?: {
+    id: string;
+    key: string;
+    fields?: {
+      summary?: string;
+      status?: { name: string };
+    };
+  };
 };
 
 type ProjectSearchResponse = {
@@ -39,6 +64,46 @@ type ProjectSearchResponse = {
   maxResults: number;
   total: number;
 };
+
+type JiraIssueResponse = {
+  fields?: {
+    issuelinks?: JiraIssueLink[];
+  };
+};
+
+const ISSUE_FIELDS = [
+  "summary",
+  "status",
+  "issuetype",
+  "priority",
+  "assignee",
+  "project",
+  "created",
+  "updated",
+  "resolutiondate",
+  SPRINT_FIELD,
+  STORY_POINTS_FIELD,
+  "issuelinks",
+];
+
+function mapLinkedIssuesFromLinks(links: JiraIssueLink[] | undefined): JiraLinkedIssue[] {
+  if (!links?.length) return [];
+  const unique = new Map<string, JiraLinkedIssue>();
+
+  for (const link of links) {
+    const linked = link.inwardIssue ?? link.outwardIssue;
+    if (!linked || unique.has(linked.id)) continue;
+
+    unique.set(linked.id, {
+      id: linked.id,
+      key: linked.key,
+      summary: linked.fields?.summary ?? linked.key,
+      status: linked.fields?.status?.name ?? "—",
+    });
+  }
+
+  return [...unique.values()];
+}
 
 export async function listProjects(): Promise<JiraProject[]> {
   const siteUrl = getSiteBaseUrl();
@@ -97,24 +162,12 @@ function mapIssueFromSearch(
     daysInProgress: null,
     sprint: issue.fields.customfield_10220 ?? null,
     storyPoints: issue.fields.customfield_10016 ?? null,
+    linkedIssues: mapLinkedIssuesFromLinks(issue.fields.issuelinks),
   };
 }
 
 export async function listIssues(projectKey: string): Promise<JiraIssue[]> {
   const apiBase = getSiteBaseUrl();
-  const fields = [
-    "summary",
-    "status",
-    "issuetype",
-    "priority",
-    "assignee",
-    "project",
-    "created",
-    "updated",
-    "resolutiondate",
-    SPRINT_FIELD,
-    STORY_POINTS_FIELD,
-  ];
   const issues: JiraIssue[] = [];
   let nextPageToken: string | undefined;
 
@@ -122,7 +175,7 @@ export async function listIssues(projectKey: string): Promise<JiraIssue[]> {
     const body: Record<string, unknown> = {
       jql: `project = "${projectKey}" ORDER BY updated DESC`,
       maxResults: 100,
-      fields,
+      fields: ISSUE_FIELDS,
     };
 
     if (nextPageToken) {
@@ -146,5 +199,30 @@ export async function listIssues(projectKey: string): Promise<JiraIssue[]> {
     nextPageToken = data.nextPageToken;
   }
 
+  return enrichIssuesWithChangelog(issues);
+}
+
+export async function listLinkedIssues(issueKey: string): Promise<JiraIssue[]> {
+  const apiBase = getSiteBaseUrl();
+  const issue = await jiraFetch<JiraIssueResponse>(
+    `${apiBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=issuelinks`,
+  );
+  const linkedIssues = mapLinkedIssuesFromLinks(issue.fields?.issuelinks);
+
+  if (linkedIssues.length === 0) {
+    return [];
+  }
+
+  const keys = linkedIssues.map((linked) => `"${linked.key}"`).join(",");
+  const data = await jiraFetch<JiraSearchResponse>(`${apiBase}/rest/api/3/search/jql`, {
+    method: "POST",
+    body: JSON.stringify({
+      jql: `issuekey in (${keys}) ORDER BY updated DESC`,
+      maxResults: 100,
+      fields: ISSUE_FIELDS,
+    }),
+  });
+
+  const issues = data.issues.map(mapIssueFromSearch);
   return enrichIssuesWithChangelog(issues);
 }
