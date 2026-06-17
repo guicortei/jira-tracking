@@ -1125,6 +1125,7 @@ function SprintGanttChart({
                               <AssigneeInitialBadge
                                 assignee={block.issue.assignee}
                                 faded={!block.isInProgress}
+                                ticketTitle={block.issue.summary}
                               />
                             ) : null}
                             <ProjectedTicketTooltip
@@ -1227,28 +1228,40 @@ function assigneeInitials(name: string) {
 function AssigneeInitialBadge({
   assignee,
   faded = false,
+  ticketTitle,
 }: {
   assignee: string | null;
   faded?: boolean;
+  ticketTitle?: string;
 }) {
   if (!assignee) return null;
   const initials = assigneeInitials(assignee);
   if (!initials) return null;
   const colors = getAssigneeBadgeColors(assignee);
+  const opacity = faded ? 0.55 : 1;
 
   return (
     <span
-      className="pointer-events-none absolute right-[-25px] top-1/2 z-20 inline-flex h-3 min-w-3 -translate-y-1/2 items-center justify-center rounded border px-0.5 text-[8px] font-bold leading-none"
-      style={{
-        backgroundColor: colors.backgroundColor,
-        color: colors.color,
-        borderColor: colors.borderColor,
-        opacity: faded ? 0.55 : 1,
-      }}
+      className="pointer-events-none absolute right-[-15px] top-1/2 z-20 inline-flex -translate-y-1/2 items-center gap-1"
+      style={{ opacity }}
       title={assignee}
       aria-hidden
     >
-      {initials}
+      <span
+        className="inline-flex h-3 min-w-3 items-center justify-center rounded border px-0.5 text-[8px] font-bold leading-none"
+        style={{
+          backgroundColor: colors.backgroundColor,
+          color: colors.color,
+          borderColor: colors.borderColor,
+        }}
+      >
+        {initials}
+      </span>
+      {ticketTitle ? (
+        <span className="max-w-[180px] truncate text-[9px] font-semibold leading-none text-zinc-700">
+          {ticketTitle}
+        </span>
+      ) : null}
     </span>
   );
 }
