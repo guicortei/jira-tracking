@@ -8,6 +8,7 @@ import {
 } from "@/components/dual-progress-bar";
 import { SprintSummaryCard } from "@/components/sprint-summary-card";
 import { StatusTimeline, normalizeStatus } from "@/components/status-timeline";
+import { getAssigneeBadgeColors } from "@/lib/string-color";
 import type {
   CheckoutProjections,
   ProjectionUnit,
@@ -102,13 +103,16 @@ export function ProjectProjectionPanel({
   const [storyChartMode, setStoryChartMode] = useState<"projection" | "flow">(
     "projection",
   );
+  const [showAssigneeInitials, setShowAssigneeInitials] = useState(false);
   const [projections, setProjections] = useState<CheckoutProjections | null>(
     null,
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const metricsColumnRef = useRef<HTMLDivElement>(null);
-  const [summaryPanelHeight, setSummaryPanelHeight] = useState<number | null>(null);
+  const [summaryPanelHeight, setSummaryPanelHeight] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     async function loadProjection() {
@@ -202,7 +206,10 @@ export function ProjectProjectionPanel({
         <div className="h-32 animate-pulse rounded-2xl bg-zinc-200" />
         <div className="grid gap-4 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-zinc-200" />
+            <div
+              key={i}
+              className="h-28 animate-pulse rounded-2xl bg-zinc-200"
+            />
           ))}
         </div>
       </div>
@@ -252,7 +259,9 @@ export function ProjectProjectionPanel({
               <p className="text-xs font-bold uppercase tracking-widest text-blue-700">
                 Dashboard
               </p>
-              <h1 className="mt-1 text-3xl font-black text-zinc-900">{projectName}</h1>
+              <h1 className="mt-1 text-3xl font-black text-zinc-900">
+                {projectName}
+              </h1>
             </div>
 
             <div className="min-w-[240px] rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-6 py-4 text-white shadow-lg">
@@ -266,7 +275,8 @@ export function ProjectProjectionPanel({
                 Faltam {projection.projection.remainingDays} dias
               </p>
               <p className="mt-3 border-t border-emerald-500/50 pt-3 text-xs font-semibold text-emerald-100">
-                Por tickets: {formatDateLong(altProjection.projection.estimatedDate)}
+                Por tickets:{" "}
+                {formatDateLong(altProjection.projection.estimatedDate)}
               </p>
             </div>
           </div>
@@ -275,8 +285,8 @@ export function ProjectProjectionPanel({
             <div className="mb-2 flex items-center justify-between text-sm font-semibold">
               <span>Progresso geral do projeto</span>
               <span className="text-blue-700">
-                {projection.overall.donePoints}/{projection.overall.totalPoints} pts (
-                {formatPct(projection.overall.completionPctPoints)})
+                {projection.overall.donePoints}/{projection.overall.totalPoints}{" "}
+                pts ({formatPct(projection.overall.completionPctPoints)})
               </span>
             </div>
             <DualProgressBar
@@ -337,9 +347,12 @@ export function ProjectProjectionPanel({
           </div>
 
           <section className="rounded-2xl border-2 border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-bold text-zinc-900">Faixa de previsão</h2>
+            <h2 className="text-base font-bold text-zinc-900">
+              Faixa de previsão
+            </h2>
             <p className="mb-4 text-sm text-zinc-600">
-              Cenários em story points com velocidade ±25% em relação à média atual
+              Cenários em story points com velocidade ±25% em relação à média
+              atual
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <ForecastCard
@@ -384,14 +397,16 @@ export function ProjectProjectionPanel({
               summaryPanelHeight === null ? "lg:max-h-[70vh]" : ""
             }`}
           >
-            <h2 className="shrink-0 text-base font-bold text-zinc-900">Resumo das sprints</h2>
+            <h2 className="shrink-0 text-base font-bold text-zinc-900">
+              Resumo das sprints
+            </h2>
             <p className="mb-1 shrink-0 text-sm text-zinc-600">
               Situação atual de cada sprint pelo campo{" "}
               <code className="text-xs">_sprint</code>.
             </p>
             <p className="mb-4 shrink-0 text-xs text-zinc-500">
-              Clique na sprint para ver os tickets. Barra sólida = concluído · listras =
-              em andamento.
+              Clique na sprint para ver os tickets. Barra sólida = concluído ·
+              listras = em andamento.
             </p>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
               {projection.sprints.map((sprint, index) => (
@@ -416,28 +431,41 @@ export function ProjectProjectionPanel({
             <h2 className="text-base font-bold text-zinc-900">
               Cronograma por sprint — velocidade em story points
             </h2>
-            <button
-              type="button"
-              onClick={() =>
-                setStoryChartMode((current) =>
-                  current === "projection" ? "flow" : "projection",
-                )
-              }
-              className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              {storyChartMode === "projection"
-                ? "Ver fluxo real por ticket"
-                : "Ver modo projeção"}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setStoryChartMode((current) =>
+                    current === "projection" ? "flow" : "projection",
+                  )
+                }
+                className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
+              >
+                {storyChartMode === "projection"
+                  ? "Ver fluxo real por ticket"
+                  : "Ver modo projeção"}
+              </button>
+              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={showAssigneeInitials}
+                  onChange={(event) =>
+                    setShowAssigneeInitials(event.target.checked)
+                  }
+                  className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                />
+                Mostrar iniciais
+              </label>
+            </div>
           </div>
           <p className="mb-1 text-sm text-zinc-600">
             Gantt sequencial: início em{" "}
             <strong className="font-semibold">
               {formatDateShort(projection.timeline.projectStartDate)}
             </strong>
-            , velocidade de {formatRate(projection.velocity.throughputPerDay)} pts/dia (
-            {projection.velocity.pointsDelivered ?? 0} pts já entregues). Cada sprint só começa
-            quando a anterior termina.
+            , velocidade de {formatRate(projection.velocity.throughputPerDay)}{" "}
+            pts/dia ({projection.velocity.pointsDelivered ?? 0} pts já
+            entregues). Cada sprint só começa quando a anterior termina.
           </p>
           <p className="mb-4 text-xs text-zinc-500">
             {storyChartMode === "projection"
@@ -453,6 +481,7 @@ export function ProjectProjectionPanel({
             averageCycleDaysPerPoint={projection.velocity.cycleDaysPerPoint}
             issuesBySprint={issuesBySprint}
             project={project}
+            showAssigneeInitials={showAssigneeInitials}
             viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
             estimatedEndDate={projection.timeline.estimatedEndDate}
@@ -467,13 +496,16 @@ export function ProjectProjectionPanel({
               Cronograma por sprint — velocidade em tickets ▸
             </span>
             <span className="mt-1 block text-sm font-normal text-zinc-600">
-              Cenário alternativo ({formatRate(altProjection.velocity.throughputPerDay)} tickets/dia) · término{" "}
+              Cenário alternativo (
+              {formatRate(altProjection.velocity.throughputPerDay)} tickets/dia)
+              · término{" "}
               {formatDateShort(altProjection.projection.estimatedDate)}
             </span>
           </summary>
           <div className="border-t border-zinc-200 px-5 pb-5 pt-4">
             <p className="mb-4 text-xs text-zinc-500">
-              Barra sólida = concluído · listras = em andamento · linha vermelha = hoje
+              Barra sólida = concluído · listras = em andamento · linha vermelha
+              = hoje
             </p>
 
             <SprintGanttChart
@@ -481,9 +513,12 @@ export function ProjectProjectionPanel({
               unit="tickets"
               velocityPerDay={altProjection.velocity.throughputPerDay}
               averageCycleDays={altProjection.velocity.medianCycleDays}
-              averageCycleDaysPerPoint={altProjection.velocity.cycleDaysPerPoint}
+              averageCycleDaysPerPoint={
+                altProjection.velocity.cycleDaysPerPoint
+              }
               issuesBySprint={issuesBySprint}
               project={project}
+              showAssigneeInitials={showAssigneeInitials}
               viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
               estimatedEndDate={altProjection.timeline.estimatedEndDate}
@@ -499,7 +534,9 @@ export function ProjectProjectionPanel({
           </summary>
           <div className="space-y-4 border-t-2 border-zinc-200 px-5 py-4 text-sm text-zinc-700">
             <div>
-              <h3 className="mb-2 font-bold text-zinc-900">Cenário por story points (padrão)</h3>
+              <h3 className="mb-2 font-bold text-zinc-900">
+                Cenário por story points (padrão)
+              </h3>
               <ul className="space-y-2">
                 {projection.assumptions.map((item) => (
                   <li key={`sp-${item}`}>• {item}</li>
@@ -507,7 +544,9 @@ export function ProjectProjectionPanel({
               </ul>
             </div>
             <div>
-              <h3 className="mb-2 font-bold text-zinc-900">Cenário por tickets</h3>
+              <h3 className="mb-2 font-bold text-zinc-900">
+                Cenário por tickets
+              </h3>
               <ul className="space-y-2">
                 {altProjection.assumptions.map((item) => (
                   <li key={`tk-${item}`}>• {item}</li>
@@ -626,7 +665,10 @@ function DayGridBackground({ days }: { days: DayGridColumn[] }) {
   if (days.length === 0) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden border-r border-zinc-300/70" aria-hidden>
+    <div
+      className="pointer-events-none absolute inset-0 overflow-hidden border-r border-zinc-300/70"
+      aria-hidden
+    >
       {days.map((day) => (
         <div
           key={day.key}
@@ -670,6 +712,7 @@ function SprintGanttChart({
   averageCycleDaysPerPoint,
   issuesBySprint,
   project,
+  showAssigneeInitials = false,
   viewMode = "projection",
   projectStartDate,
   estimatedEndDate,
@@ -683,6 +726,7 @@ function SprintGanttChart({
   averageCycleDaysPerPoint?: number;
   issuesBySprint?: Map<number, JiraIssue[]>;
   project: JiraProject;
+  showAssigneeInitials?: boolean;
   viewMode?: "projection" | "flow";
   projectStartDate: string;
   estimatedEndDate: string;
@@ -701,7 +745,7 @@ function SprintGanttChart({
     [startMs, endMs],
   );
   const dayGrid = useMemo(() => buildDayGrid(startMs, endMs), [startMs, endMs]);
-  const FLOW_BLOCK_HEIGHT = 8;
+  const FLOW_BLOCK_HEIGHT = 12;
   const FLOW_BLOCK_GAP = 3;
   const FLOW_GROUP_GAP = 5;
   const FLOW_PADDING_Y = 6;
@@ -733,19 +777,34 @@ function SprintGanttChart({
     const cycleDays = Math.max(0.5, averageCycleDays || 1);
     const cycleDaysPerPoint = Math.max(0.25, averageCycleDaysPerPoint ?? 1);
 
-    for (let index = firstIncompleteSprintIndex; index < sprints.length; index += 1) {
+    for (
+      let index = firstIncompleteSprintIndex;
+      index < sprints.length;
+      index += 1
+    ) {
       const sprint = sprints[index];
       const issues = issuesBySprint?.get(sprint.sprint) ?? [];
       const inProgressIssues = issues
         .filter((issue) => {
           const status = normalizeStatus(issue.status);
-          return Boolean(issue.workStartedAt) && status !== "FEITO" && status !== "A FAZER";
+          return (
+            Boolean(issue.workStartedAt) &&
+            status !== "FEITO" &&
+            status !== "A FAZER"
+          );
         })
         .sort((a, b) => a.key.localeCompare(b.key));
       const todoIssues = issues
         .filter((issue) => normalizeStatus(issue.status) === "A FAZER")
         .sort((a, b) => a.key.localeCompare(b.key));
-      const pendingIssues = [...new Map([...inProgressIssues, ...todoIssues].map((issue) => [issue.id, issue])).values()];
+      const pendingIssues = [
+        ...new Map(
+          [...inProgressIssues, ...todoIssues].map((issue) => [
+            issue.id,
+            issue,
+          ]),
+        ).values(),
+      ];
 
       const blocks = pendingIssues.map((issue) => {
         const statusNormalized = normalizeStatus(issue.status);
@@ -755,15 +814,25 @@ function SprintGanttChart({
         const estimatedDays = points / rate;
         const projectedEndMs = cursorMs + estimatedDays * 86400000;
         const blockEndMs = projectedEndMs;
-        const projectedCycleDaysByPoints = points > 0 ? points * cycleDaysPerPoint : cycleDays;
+        const projectedCycleDaysByPoints =
+          points > 0 ? points * cycleDaysPerPoint : cycleDays;
         const projectedCycleDays = Math.max(0.25, projectedCycleDaysByPoints);
-        const blockStartMs = isInProgress && issue.workStartedAt
-          ? dateToMs(issue.workStartedAt)
-          : blockEndMs - projectedCycleDays * 86400000;
+        const blockStartMs =
+          isInProgress && issue.workStartedAt
+            ? dateToMs(issue.workStartedAt)
+            : blockEndMs - projectedCycleDays * 86400000;
         cursorMs = blockEndMs;
 
-        const left = positionOnTimeline(new Date(blockStartMs).toISOString(), startMs, endMs);
-        const end = positionOnTimeline(new Date(blockEndMs).toISOString(), startMs, endMs);
+        const left = positionOnTimeline(
+          new Date(blockStartMs).toISOString(),
+          startMs,
+          endMs,
+        );
+        const end = positionOnTimeline(
+          new Date(blockEndMs).toISOString(),
+          startMs,
+          endMs,
+        );
         const width = Math.max(0, end - left);
 
         return {
@@ -773,7 +842,9 @@ function SprintGanttChart({
           width,
           points,
           statusLabel:
-            statusNormalized === "A FAZER" ? "A fazer" : "Em andamento (projetado)",
+            statusNormalized === "A FAZER"
+              ? "A fazer"
+              : "Em andamento (projetado)",
           isInProgress,
           issue,
         };
@@ -812,12 +883,13 @@ function SprintGanttChart({
           const statusNormalized = normalizeStatus(issue.status);
           const flowEnd =
             issue.resolutionDate || statusNormalized === "FEITO"
-              ? issue.resolutionDate ?? nowIso
+              ? (issue.resolutionDate ?? nowIso)
               : nowIso;
           const startPct = positionOnTimeline(flowStart, startMs, endMs);
           const endPct = positionOnTimeline(flowEnd, startMs, endMs);
           const flowWidth = Math.max(0.6, endPct - startPct);
-          const isDone = Boolean(issue.resolutionDate) || statusNormalized === "FEITO";
+          const isDone =
+            Boolean(issue.resolutionDate) || statusNormalized === "FEITO";
 
           return {
             key: issue.id,
@@ -840,9 +912,15 @@ function SprintGanttChart({
   );
 
   const focusIssueInTicketList = useCallback((issueKey: string) => {
-    const row = document.querySelector<HTMLElement>(`[data-issue-key="${issueKey}"]`);
+    const row = document.querySelector<HTMLElement>(
+      `[data-issue-key="${issueKey}"]`,
+    );
     if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    row.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
     const previousOutline = row.style.outline;
     const previousOutlineOffset = row.style.outlineOffset;
     const previousBackgroundColor = row.style.backgroundColor;
@@ -860,7 +938,8 @@ function SprintGanttChart({
     (sprint: SprintProjection) => {
       if (viewMode !== "flow") return DEFAULT_ROW_HEIGHT;
       const flowCount = buildFlowBlocks(sprint).length;
-      const plannedCount = (plannedCascadeBySprint.get(sprint.sprint) ?? []).length;
+      const plannedCount = (plannedCascadeBySprint.get(sprint.sprint) ?? [])
+        .length;
       const blockCount = flowCount + plannedCount;
       if (blockCount === 0) return DEFAULT_ROW_HEIGHT;
       const stackHeight =
@@ -890,7 +969,9 @@ function SprintGanttChart({
                 className="flex flex-col justify-center pr-1"
                 style={{ height: `${getSprintRowHeight(sprint)}px` }}
               >
-                <p className="text-sm font-black text-zinc-900">S{sprint.sprint}</p>
+                <p className="text-sm font-black text-zinc-900">
+                  S{sprint.sprint}
+                </p>
                 <p className="text-[10px] font-medium text-zinc-500">
                   {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
                   {workloadLabel} · {formatDays(sprint.projectedDurationDays)}d
@@ -903,7 +984,7 @@ function SprintGanttChart({
             <DayGridBackground days={dayGrid} />
 
             <div
-              className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 -translate-x-1/2 bg-red-500"
+              className="pointer-events-none absolute bottom-0 top-0 z-[1] w-0.5 -translate-x-1/2 bg-red-500"
               style={{ left: `${todayPct}%` }}
               title="Hoje"
             />
@@ -947,11 +1028,13 @@ function SprintGanttChart({
                 const width = Math.max(0.8, endPos - left);
                 const isComplete = sprint.done === sprint.total;
                 const flowBlocks = buildFlowBlocks(sprint);
-                const plannedBlocks = plannedCascadeBySprint.get(sprint.sprint) ?? [];
+                const plannedBlocks =
+                  plannedCascadeBySprint.get(sprint.sprint) ?? [];
                 const rowHeight = getSprintRowHeight(sprint);
                 const plannedOffset =
                   flowBlocks.length > 0
-                    ? flowBlocks.length * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP) + FLOW_GROUP_GAP
+                    ? flowBlocks.length * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP) +
+                      FLOW_GROUP_GAP
                     : 0;
 
                 return (
@@ -966,7 +1049,9 @@ function SprintGanttChart({
                           <div
                             key={block.key}
                             className="group absolute z-10 flex cursor-pointer rounded shadow-sm hover:z-50"
-                            onClick={() => focusIssueInTicketList(block.issue.key)}
+                            onClick={() =>
+                              focusIssueInTicketList(block.issue.key)
+                            }
                             style={{
                               top: `${FLOW_PADDING_Y + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
                               left: `${block.left}%`,
@@ -985,6 +1070,12 @@ function SprintGanttChart({
                                 {compactTicketLabel(block.label)}
                               </span>
                             </div>
+                            {showAssigneeInitials ? (
+                              <AssigneeInitialBadge
+                                assignee={block.issue.assignee}
+                                faded={false}
+                              />
+                            ) : null}
                             <ProjectedTicketTooltip
                               issue={block.issue}
                               project={project}
@@ -996,12 +1087,24 @@ function SprintGanttChart({
                           <div
                             key={`pending-${block.key}-${blockIndex}`}
                             className="group absolute z-10 flex cursor-pointer rounded border border-dashed border-white/80 shadow-sm hover:z-50"
-                            onClick={() => focusIssueInTicketList(block.issue.key)}
+                            onClick={() =>
+                              focusIssueInTicketList(block.issue.key)
+                            }
                             style={{
                               top: `${FLOW_PADDING_Y + plannedOffset + blockIndex * (FLOW_BLOCK_HEIGHT + FLOW_BLOCK_GAP)}px`,
                               left: `${block.left}%`,
                               width: `${block.width}%`,
                               height: `${FLOW_BLOCK_HEIGHT}px`,
+                              borderColor: block.isInProgress
+                                ? (() => {
+                                    if (!block.issue.assignee) return "rgba(255,255,255,0.8)";
+                                    return getAssigneeBadgeColors(block.issue.assignee)
+                                      .borderColor;
+                                  })()
+                                : undefined,
+                              boxShadow: block.isInProgress
+                                ? "0 0 0 1px rgba(0,0,0,0.95), 0 0 12px 4px rgba(0,0,0,0.55), 0 0 20px 6px rgba(0,0,0,0.3)"
+                                : undefined,
                             }}
                           >
                             <div
@@ -1018,6 +1121,12 @@ function SprintGanttChart({
                                 {compactTicketLabel(block.label)}
                               </span>
                             </div>
+                            {showAssigneeInitials ? (
+                              <AssigneeInitialBadge
+                                assignee={block.issue.assignee}
+                                faded={!block.isInProgress}
+                              />
+                            ) : null}
                             <ProjectedTicketTooltip
                               issue={block.issue}
                               project={project}
@@ -1025,7 +1134,8 @@ function SprintGanttChart({
                             />
                           </div>
                         ))}
-                        {flowBlocks.length === 0 && plannedBlocks.length === 0 ? (
+                        {flowBlocks.length === 0 &&
+                        plannedBlocks.length === 0 ? (
                           <div className="absolute inset-0 z-10 flex items-center rounded border border-dashed border-zinc-300 px-2">
                             <span className="truncate text-[10px] font-semibold text-zinc-500">
                               Sem tickets em fluxo
@@ -1088,7 +1198,8 @@ function SprintGanttChart({
             {formatDateShort(estimatedEndDate)}
           </span>
           <span>
-            <strong className="text-zinc-800">Velocidade:</strong> {velocityLabel}
+            <strong className="text-zinc-800">Velocidade:</strong>{" "}
+            {velocityLabel}
           </span>
         </div>
       </div>
@@ -1100,6 +1211,46 @@ function compactTicketLabel(ticketKey: string) {
   const parts = ticketKey.split("-");
   const suffix = parts[parts.length - 1];
   return suffix ?? ticketKey;
+}
+
+function assigneeInitials(name: string) {
+  const words = name.match(/\p{L}+/gu) ?? [];
+  if (words.length === 0) return "";
+  if (words.length === 1) {
+    return words[0]!.slice(0, 2).toUpperCase();
+  }
+  const first = words[0]![0] ?? "";
+  const last = words[words.length - 1]![0] ?? "";
+  return `${first}${last}`.toUpperCase();
+}
+
+function AssigneeInitialBadge({
+  assignee,
+  faded = false,
+}: {
+  assignee: string | null;
+  faded?: boolean;
+}) {
+  if (!assignee) return null;
+  const initials = assigneeInitials(assignee);
+  if (!initials) return null;
+  const colors = getAssigneeBadgeColors(assignee);
+
+  return (
+    <span
+      className="pointer-events-none absolute right-[-25px] top-1/2 z-20 inline-flex h-3 min-w-3 -translate-y-1/2 items-center justify-center rounded border px-0.5 text-[8px] font-bold leading-none"
+      style={{
+        backgroundColor: colors.backgroundColor,
+        color: colors.color,
+        borderColor: colors.borderColor,
+        opacity: faded ? 0.55 : 1,
+      }}
+      title={assignee}
+      aria-hidden
+    >
+      {initials}
+    </span>
+  );
 }
 
 function ProjectedTicketTooltip({
