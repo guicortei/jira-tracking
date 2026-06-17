@@ -1127,6 +1127,7 @@ function SprintGanttChart({
                               <AssigneeInitialBadge
                                 assignee={block.issue.assignee}
                                 faded={!block.isInProgress}
+                                ticketTitle={block.issue.summary}
                               />
                             ) : null}
                             <ProjectedTicketTooltip
@@ -1229,9 +1230,11 @@ function assigneeInitials(name: string) {
 function AssigneeInitialBadge({
   assignee,
   faded = false,
+  ticketTitle,
 }: {
   assignee: string | null;
   faded?: boolean;
+  ticketTitle?: string;
 }) {
   if (!assignee) return null;
   const initials = assigneeInitials(assignee);
@@ -1239,19 +1242,28 @@ function AssigneeInitialBadge({
   const colors = getAssigneeBadgeColors(assignee);
 
   return (
-    <span
-      className="pointer-events-none absolute right-[-25px] top-1/2 z-20 inline-flex h-3 min-w-3 -translate-y-1/2 items-center justify-center rounded border px-0.5 text-[8px] font-bold leading-none"
-      style={{
-        backgroundColor: colors.backgroundColor,
-        color: colors.color,
-        borderColor: colors.borderColor,
-        opacity: faded ? 0.55 : 1,
-      }}
-      title={assignee}
+    <div
+      className="pointer-events-none absolute right-[-155px] top-1/2 z-20 inline-flex w-[150px] -translate-y-1/2 items-center gap-1"
+      style={{ opacity: faded ? 0.55 : 1 }}
       aria-hidden
     >
-      {initials}
-    </span>
+      <span
+        className="inline-flex h-3 min-w-3 items-center justify-center rounded border px-0.5 text-[8px] font-bold leading-none"
+        style={{
+          backgroundColor: colors.backgroundColor,
+          color: colors.color,
+          borderColor: colors.borderColor,
+        }}
+        title={assignee}
+      >
+        {initials}
+      </span>
+      {ticketTitle ? (
+        <span className="truncate text-[9px] font-semibold text-zinc-700">
+          {ticketTitle}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
