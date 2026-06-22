@@ -84,7 +84,7 @@ function positionOnTimeline(date: string, startMs: number, endMs: number) {
 }
 
 function buildTimelineRange(projection: ProjectProjection) {
-  const startMs = dateToMs(projection.timeline.projectStartDate);
+  const startMs = startOfLocalDay(dateToMs(projection.timeline.projectStartDate));
   let endMs = dateToMs(projection.timeline.estimatedEndDate);
   if (endMs <= startMs) {
     endMs = startMs + 86400000;
@@ -627,6 +627,7 @@ function ForecastCard({
 
 type DayGridColumn = {
   key: string;
+  dayStartMs: number;
   leftPct: number;
   widthPct: number;
   isWeekend: boolean;
@@ -651,6 +652,7 @@ function buildDayGrid(startMs: number, endMs: number): DayGridColumn[] {
     const dayOfWeek = date.getDay();
     columns.push({
       key: date.toISOString().slice(0, 10),
+      dayStartMs: cursor,
       leftPct: ((cursor - startMs) / spanMs) * 100,
       widthPct: (86400000 / spanMs) * 100,
       isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
@@ -750,6 +752,17 @@ function SprintGanttChart({
   const FLOW_GROUP_GAP = 5;
   const FLOW_PADDING_Y = 6;
   const DEFAULT_ROW_HEIGHT = 40;
+  const METRICS_HEADER_HEIGHT = 16;
+  const METRICS_BAR_MAX_HEIGHT = 104;
+  const METRICS_BAR_GAP = 4;
+  const METRICS_VALUE_ROW_HEIGHT = 10;
+  const METRICS_BOTTOM_PADDING = 4;
+  const METRICS_ROW_HEIGHT =
+    METRICS_HEADER_HEIGHT +
+    METRICS_BAR_MAX_HEIGHT +
+    METRICS_BAR_GAP +
+    METRICS_VALUE_ROW_HEIGHT * 3 +
+    METRICS_BOTTOM_PADDING;
   const firstIncompleteSprintIndex = useMemo(
     () => sprints.findIndex((sprint) => sprint.done < sprint.total),
     [sprints],
@@ -934,6 +947,76 @@ function SprintGanttChart({
     }, 1600);
   }, []);
 
+  const allSprintIssues = useMemo(() => {
+    const unique = new Map<string, JiraIssue>();
+    for (const sprint of sprints) {
+      const issues = issuesBySprint?.get(sprint.sprint) ?? [];
+      for (const issue of issues) {
+        unique.set(issue.id, issue);
+      }
+    }
+    return [...unique.values()];
+  }, [issuesBySprint, sprints]);
+
+  const dailyTicketMetrics = useMemo(() => {
+    if (dayGrid.length === 0) return [];
+    const todayStartMs = startOfLocalDay(dateToMs(nowIso));
+
+    const createdEntries = allSprintIssues
+      .map((issue) => ({ issue, createdMs: dateToMs(issue.created) }))
+      .filter((entry) => Number.isFinite(entry.createdMs))
+      .sort((a, b) => a.createdMs - b.createdMs);
+    const completedTimes = allSprintIssues
+      .map((issue) => (issue.resolutionDate ? dateToMs(issue.resolutionDate) : null))
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+      .sort((a, b) => a - b);
+
+    let createdIndex = 0;
+    let completedIndex = 0;
+    let previousCreated = 0;
+
+    return dayGrid.map((day) => {
+      const dayEndMs = day.dayStartMs + 86400000 - 1;
+      const newIssues: JiraIssue[] = [];
+      while (
+        createdIndex < createdEntries.length &&
+        createdEntries[createdIndex]!.createdMs <= dayEndMs
+      ) {
+        newIssues.push(createdEntries[createdIndex]!.issue);
+        createdIndex += 1;
+      }
+      while (
+        completedIndex < completedTimes.length &&
+        completedTimes[completedIndex]! <= dayEndMs
+      ) {
+        completedIndex += 1;
+      }
+
+      const createdCumulative = createdIndex;
+      const completedCumulative = completedIndex;
+      const newTickets = createdCumulative - previousCreated;
+      previousCreated = createdCumulative;
+
+      return {
+        key: day.key,
+        leftPct: day.leftPct,
+        widthPct: day.widthPct,
+        isFuture: day.dayStartMs > todayStartMs,
+        createdCumulative,
+        completedCumulative,
+        newTickets,
+        newIssues,
+        completionPct:
+          createdCumulative > 0 ? completedCumulative / createdCumulative : 0,
+      };
+    });
+  }, [allSprintIssues, dayGrid, nowIso]);
+
+  const maxCreatedCumulative = useMemo(
+    () => Math.max(1, ...dailyTicketMetrics.map((item) => item.createdCumulative)),
+    [dailyTicketMetrics],
+  );
+
   const getSprintRowHeight = useCallback(
     (sprint: SprintProjection) => {
       if (viewMode !== "flow") return DEFAULT_ROW_HEIGHT;
@@ -978,6 +1061,33 @@ function SprintGanttChart({
                 </p>
               </div>
             ))}
+            <div
+              className="pr-1"
+              style={{ height: `${METRICS_ROW_HEIGHT}px` }}
+            >
+              <div
+                className="grid h-full text-right text-[8px] leading-tight text-zinc-500"
+                style={{
+                  gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(3, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
+                }}
+              >
+                <p
+                  className="text-[10px] font-black uppercase tracking-wide text-zinc-700"
+                  style={{ gridRow: "1" }}
+                >
+                  Tickets
+                </p>
+                <p style={{ gridRow: "4", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  Criados
+                </p>
+                <p style={{ gridRow: "5", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  Feitos
+                </p>
+                <p style={{ gridRow: "6", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  %
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="relative">
@@ -1187,6 +1297,159 @@ function SprintGanttChart({
                   </div>
                 );
               })}
+              <div
+                className="relative z-10 rounded-md border border-zinc-200/80 bg-white/20"
+                style={{ height: `${METRICS_ROW_HEIGHT}px` }}
+              >
+                {dailyTicketMetrics.map((metric, metricIndex) => {
+                  const createdHeightPx = metric.isFuture
+                    ? 0
+                    : Math.max(
+                        metric.createdCumulative > 0 ? 2 : 0,
+                        (metric.createdCumulative / maxCreatedCumulative) *
+                          METRICS_BAR_MAX_HEIGHT,
+                      );
+                  const doneHeightPx = metric.isFuture
+                    ? 0
+                    : Math.max(
+                        metric.completedCumulative > 0 ? 2 : 0,
+                        (metric.completedCumulative / maxCreatedCumulative) *
+                          METRICS_BAR_MAX_HEIGHT,
+                      );
+                  const newHeightPx = metric.isFuture
+                    ? 0
+                    : Math.max(
+                        metric.newTickets > 0 ? 2 : 0,
+                        (metric.newTickets / maxCreatedCumulative) *
+                          METRICS_BAR_MAX_HEIGHT,
+                      );
+                  const createdLabel =
+                    metric.isFuture || metric.createdCumulative === 0
+                      ? ""
+                      : String(metric.createdCumulative);
+                  const completedLabel =
+                    metric.isFuture || metric.completedCumulative === 0
+                      ? ""
+                      : String(metric.completedCumulative);
+                  const newLabel =
+                    metric.isFuture || metric.newTickets === 0
+                      ? ""
+                      : `+${metric.newTickets}`;
+                  const pctRounded = Math.round(metric.completionPct * 100);
+                  const completionLabel =
+                    metric.isFuture || pctRounded === 0 ? "" : `${pctRounded}%`;
+                  const previousMetric =
+                    metricIndex > 0 ? dailyTicketMetrics[metricIndex - 1] : null;
+                  const pctTrend: "up" | "down" | "flat" = (() => {
+                    if (!previousMetric || metric.isFuture || previousMetric.isFuture) {
+                      return "flat";
+                    }
+                    if (metric.completionPct > previousMetric.completionPct) {
+                      return "up";
+                    }
+                    if (metric.completionPct < previousMetric.completionPct) {
+                      return "down";
+                    }
+                    return "flat";
+                  })();
+                  const pctTrendClass =
+                    pctTrend === "up"
+                      ? "text-emerald-600"
+                      : pctTrend === "down"
+                        ? "text-red-600"
+                        : "text-zinc-700";
+                  const deltaClass = newLabel === "" ? "text-zinc-700" : "text-red-600";
+
+                  return (
+                    <div
+                      key={`metric-${metric.key}`}
+                      className="absolute top-0 bottom-0"
+                      style={{
+                        left: `${metric.leftPct}%`,
+                        width: `${metric.widthPct}%`,
+                      }}
+                    >
+                      <div
+                        className="grid h-full"
+                        style={{
+                          gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(3, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
+                        }}
+                      >
+                        <div className="relative w-full" style={{ gridRow: "2" }}>
+                          <div className="group/novos absolute -top-3 left-1/2 z-20 -translate-x-1/2">
+                            <p className={`text-[8px] leading-none ${deltaClass}`}>{newLabel}</p>
+                            {!metric.isFuture && metric.newIssues.length > 0 ? (
+                              <div className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1 w-52 -translate-x-1/2 rounded-md border border-zinc-200 bg-white p-1.5 text-left text-[9px] font-medium text-zinc-700 opacity-0 shadow-lg ring-1 ring-black/5 transition-opacity group-hover/novos:opacity-100">
+                                <p className="mb-1 text-[8px] font-bold uppercase tracking-wide text-zinc-500">
+                                  Novos tickets do dia
+                                </p>
+                                <ul className="max-h-28 space-y-0.5 overflow-y-auto pr-0.5">
+                                  {metric.newIssues.map((issue) => (
+                                    <li key={`new-${metric.key}-${issue.id}`} className="truncate">
+                                      <span className="font-bold text-blue-700">{issue.key}</span>{" "}
+                                      <span className="text-zinc-600">— {issue.summary}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="absolute inset-0 overflow-hidden bg-zinc-200/25">
+                            <div
+                              className="absolute bottom-0 left-0 right-0 bg-zinc-500/35"
+                              style={{ height: `${createdHeightPx}px` }}
+                            />
+                            <div
+                              className="absolute bottom-0 left-0 right-0 bg-emerald-500/50"
+                              style={{ height: `${doneHeightPx}px` }}
+                            />
+                          {pctTrend === "up" && completionLabel !== "" ? (
+                            <span
+                              className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 text-[8px] font-bold leading-none text-emerald-600"
+                              style={{
+                                bottom: `${Math.min(
+                                  METRICS_BAR_MAX_HEIGHT - 8,
+                                  doneHeightPx + 2,
+                                )}px`,
+                              }}
+                            >
+                              {completionLabel}
+                            </span>
+                          ) : null}
+                            {!metric.isFuture && metric.newTickets > 0 ? (
+                              <div
+                                className="absolute left-0 right-0 bg-red-500/55"
+                                style={{
+                                  bottom: `${Math.max(0, createdHeightPx - newHeightPx)}px`,
+                                  height: `${newHeightPx}px`,
+                                }}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                        <p
+                          className="text-center text-[8px] leading-tight text-zinc-700"
+                          style={{ gridRow: "4", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {createdLabel}
+                        </p>
+                        <p
+                          className="text-center text-[8px] leading-tight text-zinc-700"
+                          style={{ gridRow: "5", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {completedLabel}
+                        </p>
+                        <p
+                          className={`text-center text-[8px] leading-tight ${pctTrendClass}`}
+                          style={{ gridRow: "6", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {completionLabel}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
