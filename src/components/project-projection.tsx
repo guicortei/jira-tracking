@@ -103,6 +103,9 @@ export function ProjectProjectionPanel({
   const [storyChartMode, setStoryChartMode] = useState<"projection" | "flow">(
     "projection",
   );
+  const [metricsBarBase, setMetricsBarBase] = useState<"tickets" | "storyPoints">(
+    "tickets",
+  );
   const [showAssigneeInitials, setShowAssigneeInitials] = useState(false);
   const [projections, setProjections] = useState<CheckoutProjections | null>(
     null,
@@ -456,6 +459,33 @@ export function ProjectProjectionPanel({
                 />
                 Mostrar iniciais
               </label>
+              <div className="inline-flex items-center overflow-hidden rounded-md border border-zinc-300 bg-white text-[10px] font-semibold text-zinc-700">
+                <span className="border-r border-zinc-300 px-2 py-1 text-zinc-500">
+                  Barras
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMetricsBarBase("tickets")}
+                  className={`px-2 py-1 ${
+                    metricsBarBase === "tickets"
+                      ? "bg-zinc-900 text-white"
+                      : "hover:bg-zinc-100"
+                  }`}
+                >
+                  Tickets
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMetricsBarBase("storyPoints")}
+                  className={`border-l border-zinc-300 px-2 py-1 ${
+                    metricsBarBase === "storyPoints"
+                      ? "bg-zinc-900 text-white"
+                      : "hover:bg-zinc-100"
+                  }`}
+                >
+                  Story points
+                </button>
+              </div>
             </div>
           </div>
           <p className="mb-1 text-sm text-zinc-600">
@@ -482,6 +512,7 @@ export function ProjectProjectionPanel({
             issuesBySprint={issuesBySprint}
             project={project}
             showAssigneeInitials={showAssigneeInitials}
+            metricsBarBase={metricsBarBase}
             viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
             estimatedEndDate={projection.timeline.estimatedEndDate}
@@ -519,6 +550,7 @@ export function ProjectProjectionPanel({
               issuesBySprint={issuesBySprint}
               project={project}
               showAssigneeInitials={showAssigneeInitials}
+              metricsBarBase={metricsBarBase}
               viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
               estimatedEndDate={altProjection.timeline.estimatedEndDate}
@@ -715,6 +747,7 @@ function SprintGanttChart({
   issuesBySprint,
   project,
   showAssigneeInitials = false,
+  metricsBarBase = "tickets",
   viewMode = "projection",
   projectStartDate,
   estimatedEndDate,
@@ -729,6 +762,7 @@ function SprintGanttChart({
   issuesBySprint?: Map<number, JiraIssue[]>;
   project: JiraProject;
   showAssigneeInitials?: boolean;
+  metricsBarBase?: "tickets" | "storyPoints";
   viewMode?: "projection" | "flow";
   projectStartDate: string;
   estimatedEndDate: string;
@@ -761,7 +795,7 @@ function SprintGanttChart({
     METRICS_HEADER_HEIGHT +
     METRICS_BAR_MAX_HEIGHT +
     METRICS_BAR_GAP +
-    METRICS_VALUE_ROW_HEIGHT * 3 +
+    METRICS_VALUE_ROW_HEIGHT * 6 +
     METRICS_BOTTOM_PADDING;
   const firstIncompleteSprintIndex = useMemo(
     () => sprints.findIndex((sprint) => sprint.done < sprint.total),
@@ -963,17 +997,39 @@ function SprintGanttChart({
     const todayStartMs = startOfLocalDay(dateToMs(nowIso));
 
     const createdEntries = allSprintIssues
-      .map((issue) => ({ issue, createdMs: dateToMs(issue.created) }))
+      .map((issue) => ({
+        issue,
+        createdMs: dateToMs(issue.created),
+        storyPoints: Math.max(issue.storyPoints ?? 0, 0),
+      }))
       .filter((entry) => Number.isFinite(entry.createdMs))
       .sort((a, b) => a.createdMs - b.createdMs);
     const completedTimes = allSprintIssues
       .map((issue) => (issue.resolutionDate ? dateToMs(issue.resolutionDate) : null))
       .filter((value): value is number => value !== null && Number.isFinite(value))
       .sort((a, b) => a - b);
+    const completedPointEntries = allSprintIssues
+      .map((issue) =>
+        issue.resolutionDate
+          ? {
+              completedMs: dateToMs(issue.resolutionDate),
+              storyPoints: Math.max(issue.storyPoints ?? 0, 0),
+            }
+          : null,
+      )
+      .filter(
+        (entry): entry is { completedMs: number; storyPoints: number } =>
+          entry !== null && Number.isFinite(entry.completedMs),
+      )
+      .sort((a, b) => a.completedMs - b.completedMs);
 
     let createdIndex = 0;
     let completedIndex = 0;
+    let completedPointsIndex = 0;
     let previousCreated = 0;
+    let previousCreatedStoryPoints = 0;
+    let createdStoryPointsCumulative = 0;
+    let completedStoryPointsCumulative = 0;
 
     return dayGrid.map((day) => {
       const dayEndMs = day.dayStartMs + 86400000 - 1;
@@ -982,8 +1038,17 @@ function SprintGanttChart({
         createdIndex < createdEntries.length &&
         createdEntries[createdIndex]!.createdMs <= dayEndMs
       ) {
+        createdStoryPointsCumulative += createdEntries[createdIndex]!.storyPoints;
         newIssues.push(createdEntries[createdIndex]!.issue);
         createdIndex += 1;
+      }
+      while (
+        completedPointsIndex < completedPointEntries.length &&
+        completedPointEntries[completedPointsIndex]!.completedMs <= dayEndMs
+      ) {
+        completedStoryPointsCumulative +=
+          completedPointEntries[completedPointsIndex]!.storyPoints;
+        completedPointsIndex += 1;
       }
       while (
         completedIndex < completedTimes.length &&
@@ -996,6 +1061,9 @@ function SprintGanttChart({
       const completedCumulative = completedIndex;
       const newTickets = createdCumulative - previousCreated;
       previousCreated = createdCumulative;
+      const newStoryPoints =
+        createdStoryPointsCumulative - previousCreatedStoryPoints;
+      previousCreatedStoryPoints = createdStoryPointsCumulative;
 
       return {
         key: day.key,
@@ -1005,16 +1073,31 @@ function SprintGanttChart({
         createdCumulative,
         completedCumulative,
         newTickets,
+        createdStoryPointsCumulative,
+        completedStoryPointsCumulative,
+        newStoryPoints,
         newIssues,
         completionPct:
           createdCumulative > 0 ? completedCumulative / createdCumulative : 0,
+        completionPctStoryPoints:
+          createdStoryPointsCumulative > 0
+            ? completedStoryPointsCumulative / createdStoryPointsCumulative
+            : 0,
       };
     });
   }, [allSprintIssues, dayGrid, nowIso]);
 
-  const maxCreatedCumulative = useMemo(
-    () => Math.max(1, ...dailyTicketMetrics.map((item) => item.createdCumulative)),
-    [dailyTicketMetrics],
+  const maxBarBaseCumulative = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...dailyTicketMetrics.map((item) =>
+          metricsBarBase === "tickets"
+            ? item.createdCumulative
+            : item.createdStoryPointsCumulative,
+        ),
+      ),
+    [dailyTicketMetrics, metricsBarBase],
   );
 
   const getSprintRowHeight = useCallback(
@@ -1068,7 +1151,7 @@ function SprintGanttChart({
               <div
                 className="grid h-full text-right text-[8px] leading-tight text-zinc-500"
                 style={{
-                  gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(3, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
+                  gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(6, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
                 }}
               >
                 <p
@@ -1085,6 +1168,15 @@ function SprintGanttChart({
                 </p>
                 <p style={{ gridRow: "6", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
                   %
+                </p>
+                <p style={{ gridRow: "7", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  SP total
+                </p>
+                <p style={{ gridRow: "8", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  SP feito
+                </p>
+                <p style={{ gridRow: "9", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
+                  SP %
                 </p>
               </div>
             </div>
@@ -1302,25 +1394,37 @@ function SprintGanttChart({
                 style={{ height: `${METRICS_ROW_HEIGHT}px` }}
               >
                 {dailyTicketMetrics.map((metric, metricIndex) => {
+                  const barCreatedBase =
+                    metricsBarBase === "tickets"
+                      ? metric.createdCumulative
+                      : metric.createdStoryPointsCumulative;
+                  const barDoneBase =
+                    metricsBarBase === "tickets"
+                      ? metric.completedCumulative
+                      : metric.completedStoryPointsCumulative;
+                  const barNewBase =
+                    metricsBarBase === "tickets"
+                      ? metric.newTickets
+                      : metric.newStoryPoints;
                   const createdHeightPx = metric.isFuture
                     ? 0
                     : Math.max(
-                        metric.createdCumulative > 0 ? 2 : 0,
-                        (metric.createdCumulative / maxCreatedCumulative) *
+                        barCreatedBase > 0 ? 2 : 0,
+                        (barCreatedBase / maxBarBaseCumulative) *
                           METRICS_BAR_MAX_HEIGHT,
                       );
                   const doneHeightPx = metric.isFuture
                     ? 0
                     : Math.max(
-                        metric.completedCumulative > 0 ? 2 : 0,
-                        (metric.completedCumulative / maxCreatedCumulative) *
+                        barDoneBase > 0 ? 2 : 0,
+                        (barDoneBase / maxBarBaseCumulative) *
                           METRICS_BAR_MAX_HEIGHT,
                       );
                   const newHeightPx = metric.isFuture
                     ? 0
                     : Math.max(
-                        metric.newTickets > 0 ? 2 : 0,
-                        (metric.newTickets / maxCreatedCumulative) *
+                        barNewBase > 0 ? 2 : 0,
+                        (barNewBase / maxBarBaseCumulative) *
                           METRICS_BAR_MAX_HEIGHT,
                       );
                   const createdLabel =
@@ -1338,6 +1442,21 @@ function SprintGanttChart({
                   const pctRounded = Math.round(metric.completionPct * 100);
                   const completionLabel =
                     metric.isFuture || pctRounded === 0 ? "" : `${pctRounded}%`;
+                  const createdStoryPointsLabel =
+                    metric.isFuture || metric.createdStoryPointsCumulative === 0
+                      ? ""
+                      : formatRate(metric.createdStoryPointsCumulative);
+                  const completedStoryPointsLabel =
+                    metric.isFuture || metric.completedStoryPointsCumulative === 0
+                      ? ""
+                      : formatRate(metric.completedStoryPointsCumulative);
+                  const pctStoryPointsRounded = Math.round(
+                    metric.completionPctStoryPoints * 100,
+                  );
+                  const completionStoryPointsLabel =
+                    metric.isFuture || pctStoryPointsRounded === 0
+                      ? ""
+                      : `${pctStoryPointsRounded}%`;
                   const previousMetric =
                     metricIndex > 0 ? dailyTicketMetrics[metricIndex - 1] : null;
                   const pctTrend: "up" | "down" | "flat" = (() => {
@@ -1358,7 +1477,37 @@ function SprintGanttChart({
                       : pctTrend === "down"
                         ? "text-red-600"
                         : "text-zinc-700";
+                  const pctStoryPointsTrend: "up" | "down" | "flat" = (() => {
+                    if (!previousMetric || metric.isFuture || previousMetric.isFuture) {
+                      return "flat";
+                    }
+                    if (
+                      metric.completionPctStoryPoints >
+                      previousMetric.completionPctStoryPoints
+                    ) {
+                      return "up";
+                    }
+                    if (
+                      metric.completionPctStoryPoints <
+                      previousMetric.completionPctStoryPoints
+                    ) {
+                      return "down";
+                    }
+                    return "flat";
+                  })();
+                  const pctStoryPointsTrendClass =
+                    pctStoryPointsTrend === "up"
+                      ? "text-emerald-600"
+                      : pctStoryPointsTrend === "down"
+                        ? "text-red-600"
+                        : "text-zinc-700";
                   const deltaClass = newLabel === "" ? "text-zinc-700" : "text-red-600";
+                  const activePctTrend =
+                    metricsBarBase === "tickets" ? pctTrend : pctStoryPointsTrend;
+                  const activePctLabel =
+                    metricsBarBase === "tickets"
+                      ? completionLabel
+                      : completionStoryPointsLabel;
 
                   return (
                     <div
@@ -1372,7 +1521,7 @@ function SprintGanttChart({
                       <div
                         className="grid h-full"
                         style={{
-                          gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(3, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
+                          gridTemplateRows: `${METRICS_HEADER_HEIGHT}px ${METRICS_BAR_MAX_HEIGHT}px ${METRICS_BAR_GAP}px repeat(6, ${METRICS_VALUE_ROW_HEIGHT}px) ${METRICS_BOTTOM_PADDING}px`,
                         }}
                       >
                         <div className="relative w-full" style={{ gridRow: "2" }}>
@@ -1403,7 +1552,7 @@ function SprintGanttChart({
                               className="absolute bottom-0 left-0 right-0 bg-emerald-500/50"
                               style={{ height: `${doneHeightPx}px` }}
                             />
-                          {pctTrend === "up" && completionLabel !== "" ? (
+                          {activePctTrend === "up" && activePctLabel !== "" ? (
                             <span
                               className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 text-[8px] font-bold leading-none text-emerald-600"
                               style={{
@@ -1413,7 +1562,7 @@ function SprintGanttChart({
                                 )}px`,
                               }}
                             >
-                              {completionLabel}
+                              {activePctLabel}
                             </span>
                           ) : null}
                             {!metric.isFuture && metric.newTickets > 0 ? (
@@ -1444,6 +1593,24 @@ function SprintGanttChart({
                           style={{ gridRow: "6", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
                         >
                           {completionLabel}
+                        </p>
+                        <p
+                          className="text-center text-[8px] leading-tight text-zinc-700"
+                          style={{ gridRow: "7", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {createdStoryPointsLabel}
+                        </p>
+                        <p
+                          className="text-center text-[8px] leading-tight text-zinc-700"
+                          style={{ gridRow: "8", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {completedStoryPointsLabel}
+                        </p>
+                        <p
+                          className={`text-center text-[8px] leading-tight ${pctStoryPointsTrendClass}`}
+                          style={{ gridRow: "9", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}
+                        >
+                          {completionStoryPointsLabel}
                         </p>
                       </div>
                     </div>
