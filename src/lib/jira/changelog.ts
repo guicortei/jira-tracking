@@ -33,6 +33,8 @@ export function extractWorkStartedAt(histories: ChangelogHistory[]): string | nu
     (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime(),
   );
 
+  let latestExitFromTodo: string | null = null;
+
   for (const history of sorted) {
     for (const item of history.items) {
       if (item.field !== "status") continue;
@@ -41,12 +43,12 @@ export function extractWorkStartedAt(histories: ChangelogHistory[]): string | nu
       const to = item.toString ?? "";
 
       if (isTodoStatus(from) && !isTodoStatus(to)) {
-        return history.created;
+        latestExitFromTodo = history.created;
       }
     }
   }
 
-  return null;
+  return latestExitFromTodo;
 }
 
 async function fetchIssueChangelog(issueKey: string): Promise<ChangelogHistory[]> {
