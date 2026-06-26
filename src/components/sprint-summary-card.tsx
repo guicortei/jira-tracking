@@ -68,6 +68,7 @@ function sprintStatusLabel(sprint: SprintProjection) {
 type SprintSummaryCardProps = {
   sprint: SprintProjection;
   color: string;
+  sprintLabel?: string;
   issues: JiraIssue[];
   project: JiraProject;
   issuesLoading?: boolean;
@@ -76,6 +77,7 @@ type SprintSummaryCardProps = {
 export function SprintSummaryCard({
   sprint,
   color,
+  sprintLabel,
   issues,
   project,
   issuesLoading = false,
@@ -125,6 +127,14 @@ export function SprintSummaryCard({
                 {sprintStatusLabel(sprint)}
               </span>
             </div>
+            {sprintLabel ? (
+              <p
+                className="truncate rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700"
+                title={sprintLabel}
+              >
+                {sprintLabel}
+              </p>
+            ) : null}
 
             <DualProgressBar
               total={sprint.total}

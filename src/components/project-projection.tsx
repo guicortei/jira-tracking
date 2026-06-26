@@ -75,6 +75,22 @@ function dateToMs(value: string) {
   return new Date(value).getTime();
 }
 
+function buildSprintCategoryLabel(issues: JiraIssue[]) {
+  const uniqueCategories = new Set<string>();
+  for (const issue of issues) {
+    for (const category of issue.categories) {
+      const trimmed = category.trim();
+      if (!trimmed) continue;
+      uniqueCategories.add(trimmed);
+    }
+  }
+  return [...uniqueCategories]
+    .sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" }),
+    )
+    .join(" / ");
+}
+
 function positionOnTimeline(date: string, startMs: number, endMs: number) {
   if (endMs <= startMs) return 0;
   return Math.min(
@@ -170,6 +186,16 @@ export function ProjectProjectionPanel({
     }
     return map;
   }, [issues]);
+
+  const sprintLabelByNumber = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const [sprint, sprintIssues] of issuesBySprint.entries()) {
+      const label = buildSprintCategoryLabel(sprintIssues);
+      if (!label) continue;
+      map.set(sprint, label);
+    }
+    return map;
+  }, [issuesBySprint]);
 
   useEffect(() => {
     const column = metricsColumnRef.current;
@@ -417,6 +443,7 @@ export function ProjectProjectionPanel({
                   key={sprint.sprint}
                   sprint={sprint}
                   color={SPRINT_COLORS[index % SPRINT_COLORS.length]}
+                  sprintLabel={sprintLabelByNumber.get(sprint.sprint)}
                   issues={issuesBySprint.get(sprint.sprint) ?? []}
                   project={project}
                   issuesLoading={issuesLoading}
@@ -510,6 +537,7 @@ export function ProjectProjectionPanel({
             averageCycleDays={projection.velocity.medianCycleDays}
             averageCycleDaysPerPoint={projection.velocity.cycleDaysPerPoint}
             issuesBySprint={issuesBySprint}
+            sprintLabelByNumber={sprintLabelByNumber}
             project={project}
             showAssigneeInitials={showAssigneeInitials}
             metricsBarBase={metricsBarBase}
@@ -548,6 +576,7 @@ export function ProjectProjectionPanel({
                 altProjection.velocity.cycleDaysPerPoint
               }
               issuesBySprint={issuesBySprint}
+              sprintLabelByNumber={sprintLabelByNumber}
               project={project}
               showAssigneeInitials={showAssigneeInitials}
               metricsBarBase={metricsBarBase}
@@ -720,19 +749,50 @@ function DayGridBackground({ days }: { days: DayGridColumn[] }) {
 }
 
 function buildMonthTicks(startMs: number, endMs: number) {
-  const ticks: { label: string; pct: number }[] = [];
+  const spanMs = endMs - startMs;
+  if (spanMs <= 0) return [];
+  const ticks: { key: string; label: string; leftPct: number; widthPct: number }[] = [];
   const cursor = new Date(startMs);
   cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
 
   while (cursor.getTime() <= endMs) {
+    const monthStartMs = Math.max(cursor.getTime(), startMs);
+    const next = new Date(cursor);
+    next.setMonth(next.getMonth() + 1);
+    const monthEndMs = Math.min(next.getTime(), endMs);
     ticks.push({
-      label: new Intl.DateTimeFormat("pt-BR", {
-        month: "short",
-        year: "2-digit",
-      }).format(cursor),
-      pct: positionOnTimeline(cursor.toISOString(), startMs, endMs),
+      key: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+      label: new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(cursor),
+      leftPct: ((monthStartMs - startMs) / spanMs) * 100,
+      widthPct: Math.max(0, ((monthEndMs - monthStartMs) / spanMs) * 100),
     });
     cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  return ticks;
+}
+
+function buildYearTicks(startMs: number, endMs: number) {
+  const spanMs = endMs - startMs;
+  if (spanMs <= 0) return [];
+  const ticks: { key: string; label: string; leftPct: number; widthPct: number }[] = [];
+  const cursor = new Date(startMs);
+  cursor.setMonth(0, 1);
+  cursor.setHours(0, 0, 0, 0);
+
+  while (cursor.getTime() <= endMs) {
+    const yearStartMs = Math.max(cursor.getTime(), startMs);
+    const next = new Date(cursor);
+    next.setFullYear(next.getFullYear() + 1);
+    const yearEndMs = Math.min(next.getTime(), endMs);
+    ticks.push({
+      key: String(cursor.getFullYear()),
+      label: String(cursor.getFullYear()),
+      leftPct: ((yearStartMs - startMs) / spanMs) * 100,
+      widthPct: Math.max(0, ((yearEndMs - yearStartMs) / spanMs) * 100),
+    });
+    cursor.setFullYear(cursor.getFullYear() + 1);
   }
 
   return ticks;
@@ -745,6 +805,7 @@ function SprintGanttChart({
   averageCycleDays,
   averageCycleDaysPerPoint,
   issuesBySprint,
+  sprintLabelByNumber,
   project,
   showAssigneeInitials = false,
   metricsBarBase = "tickets",
@@ -760,6 +821,7 @@ function SprintGanttChart({
   averageCycleDays: number;
   averageCycleDaysPerPoint?: number;
   issuesBySprint?: Map<number, JiraIssue[]>;
+  sprintLabelByNumber?: Map<number, string>;
   project: JiraProject;
   showAssigneeInitials?: boolean;
   metricsBarBase?: "tickets" | "storyPoints";
@@ -780,12 +842,20 @@ function SprintGanttChart({
     () => buildMonthTicks(startMs, endMs),
     [startMs, endMs],
   );
+  const yearTicks = useMemo(() => buildYearTicks(startMs, endMs), [startMs, endMs]);
   const dayGrid = useMemo(() => buildDayGrid(startMs, endMs), [startMs, endMs]);
+  const dayLabelStep = useMemo(() => {
+    if (dayGrid.length <= 45) return 1;
+    if (dayGrid.length <= 90) return 2;
+    if (dayGrid.length <= 180) return 5;
+    return 10;
+  }, [dayGrid.length]);
   const FLOW_BLOCK_HEIGHT = 12;
   const FLOW_BLOCK_GAP = 3;
   const FLOW_GROUP_GAP = 5;
   const FLOW_PADDING_Y = 6;
   const DEFAULT_ROW_HEIGHT = 40;
+  const PROJECTION_ROW_WITH_LABEL_HEIGHT = 62;
   const METRICS_HEADER_HEIGHT = 16;
   const METRICS_BAR_MAX_HEIGHT = 104;
   const METRICS_BAR_GAP = 4;
@@ -1102,7 +1172,11 @@ function SprintGanttChart({
 
   const getSprintRowHeight = useCallback(
     (sprint: SprintProjection) => {
-      if (viewMode !== "flow") return DEFAULT_ROW_HEIGHT;
+      if (viewMode !== "flow") {
+        return sprintLabelByNumber?.get(sprint.sprint)
+          ? PROJECTION_ROW_WITH_LABEL_HEIGHT
+          : DEFAULT_ROW_HEIGHT;
+      }
       const flowCount = buildFlowBlocks(sprint).length;
       const plannedCount = (plannedCascadeBySprint.get(sprint.sprint) ?? [])
         .length;
@@ -1114,7 +1188,7 @@ function SprintGanttChart({
         (flowCount > 0 && plannedCount > 0 ? FLOW_GROUP_GAP : 0);
       return Math.max(DEFAULT_ROW_HEIGHT, stackHeight + FLOW_PADDING_Y * 2);
     },
-    [buildFlowBlocks, plannedCascadeBySprint, viewMode],
+    [buildFlowBlocks, plannedCascadeBySprint, sprintLabelByNumber, viewMode],
   );
 
   return (
@@ -1138,6 +1212,14 @@ function SprintGanttChart({
                 <p className="text-sm font-black text-zinc-900">
                   S{sprint.sprint}
                 </p>
+                {sprintLabelByNumber?.get(sprint.sprint) ? (
+                  <p
+                    className="mt-0.5 rounded-md border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold leading-tight whitespace-normal break-words text-zinc-700"
+                    title={sprintLabelByNumber.get(sprint.sprint)}
+                  >
+                    {sprintLabelByNumber.get(sprint.sprint)}
+                  </p>
+                ) : null}
                 <p className="text-[10px] font-medium text-zinc-500">
                   {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
                   {workloadLabel} · {formatDays(sprint.projectedDurationDays)}d
@@ -1197,22 +1279,52 @@ function SprintGanttChart({
               Hoje
             </span>
             <div className="relative flex h-full flex-col">
-              <div className="relative h-10 shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
+              <div className="relative h-[64px] shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
+                <div className="absolute inset-x-0 top-0 h-4 overflow-hidden border-b border-zinc-200/80">
+                  {yearTicks.map((tick) => (
+                    <div
+                      key={`year-${tick.key}`}
+                      className="absolute bottom-0 top-0 border-l border-zinc-300/60 px-1 text-[10px] font-bold leading-4 text-zinc-700"
+                      style={{ left: `${tick.leftPct}%`, width: `${tick.widthPct}%` }}
+                    >
+                      {tick.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="absolute inset-x-0 top-4 h-4 overflow-hidden border-b border-zinc-200/80">
+                  {monthTicks.map((tick) => (
+                    <div
+                      key={`month-${tick.key}`}
+                      className="absolute bottom-0 top-0 border-l border-zinc-300/50 px-1 text-[10px] font-semibold leading-4 text-zinc-600"
+                      style={{ left: `${tick.leftPct}%`, width: `${tick.widthPct}%` }}
+                    >
+                      {tick.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="absolute inset-x-0 top-8 h-4 overflow-hidden">
+                  {dayGrid.map((day, index) => {
+                    if (index % dayLabelStep !== 0) return null;
+                    return (
+                      <span
+                        key={`day-label-${day.key}`}
+                        className="absolute -translate-x-1/2 whitespace-nowrap text-[9px] font-medium text-zinc-500"
+                        style={{
+                          left: `${day.leftPct + day.widthPct / 2}%`,
+                          top: "1px",
+                        }}
+                      >
+                        {new Date(day.dayStartMs).getDate()}
+                      </span>
+                    );
+                  })}
+                </div>
                 <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
                   {formatDateShort(projectStartDate)}
                 </span>
                 <span className="absolute bottom-0 right-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
                   {formatDateShort(estimatedEndDate)}
                 </span>
-                {monthTicks.map((tick) => (
-                  <span
-                    key={`${tick.label}-${tick.pct}`}
-                    className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] text-zinc-400"
-                    style={{ left: `${tick.pct}%` }}
-                  >
-                    {tick.label}
-                  </span>
-                ))}
               </div>
 
               {sprints.map((sprint, index) => {
