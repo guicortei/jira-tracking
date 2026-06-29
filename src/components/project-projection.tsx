@@ -2212,11 +2212,7 @@ function SprintGanttChart({
                 {projectionHistoryRange && projectionHistoryChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
-                      data={
-                        projectionChartMode === "normal"
-                          ? projectionHistoryChartData
-                          : inverseCumulativeScatterData
-                      }
+                      data={projectionHistoryChartData}
                       margin={HISTORY_CHART_MARGIN}
                     >
                       <CartesianGrid
@@ -2227,7 +2223,7 @@ function SprintGanttChart({
                       />
                       <XAxis
                         type="number"
-                        dataKey={projectionChartMode === "normal" ? "eventMs" : "x"}
+                        dataKey="eventMs"
                         domain={[startMs, endMs]}
                         padding={{ left: 0, right: 0 }}
                         allowDataOverflow
