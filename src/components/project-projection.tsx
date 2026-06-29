@@ -17,6 +17,16 @@ import type {
 } from "@/lib/jira/projection-types";
 import type { JiraIssue, JiraProject } from "@/lib/jira/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Scatter,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type ProjectProjectionPanelProps = {
   projectKey: string;
@@ -49,6 +59,13 @@ function formatDateShort(value: string) {
   }).format(new Date(value));
 }
 
+function formatDateShortFromMs(value: number) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
 function formatDateLong(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(
     new Date(value),
@@ -59,7 +76,10 @@ function formatPct(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatRate(value: number) {
+function formatRate(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "—";
+  }
   return value.toLocaleString("pt-BR", {
     maximumFractionDigits: 2,
   });
@@ -102,6 +122,15 @@ function positionOnTimeline(date: string, startMs: number, endMs: number) {
 function buildTimelineRange(projection: ProjectProjection) {
   const startMs = startOfLocalDay(dateToMs(projection.timeline.projectStartDate));
   let endMs = dateToMs(projection.timeline.estimatedEndDate);
+  const endDate = new Date(endMs);
+  const endsAtDayStart =
+    endDate.getHours() === 0 &&
+    endDate.getMinutes() === 0 &&
+    endDate.getSeconds() === 0 &&
+    endDate.getMilliseconds() === 0;
+  if (!endsAtDayStart) {
+    endMs = startOfLocalDay(endMs) + 86400000;
+  }
   if (endMs <= startMs) {
     endMs = startMs + 86400000;
   }
@@ -486,33 +515,6 @@ export function ProjectProjectionPanel({
                 />
                 Mostrar iniciais
               </label>
-              <div className="inline-flex items-center overflow-hidden rounded-md border border-zinc-300 bg-white text-[10px] font-semibold text-zinc-700">
-                <span className="border-r border-zinc-300 px-2 py-1 text-zinc-500">
-                  Barras
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMetricsBarBase("tickets")}
-                  className={`px-2 py-1 ${
-                    metricsBarBase === "tickets"
-                      ? "bg-zinc-900 text-white"
-                      : "hover:bg-zinc-100"
-                  }`}
-                >
-                  Tickets
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMetricsBarBase("storyPoints")}
-                  className={`border-l border-zinc-300 px-2 py-1 ${
-                    metricsBarBase === "storyPoints"
-                      ? "bg-zinc-900 text-white"
-                      : "hover:bg-zinc-100"
-                  }`}
-                >
-                  Story points
-                </button>
-              </div>
             </div>
           </div>
           <p className="mb-1 text-sm text-zinc-600">
@@ -541,6 +543,7 @@ export function ProjectProjectionPanel({
             project={project}
             showAssigneeInitials={showAssigneeInitials}
             metricsBarBase={metricsBarBase}
+            onMetricsBarBaseChange={setMetricsBarBase}
             viewMode={storyChartMode}
             projectStartDate={projection.timeline.projectStartDate}
             estimatedEndDate={projection.timeline.estimatedEndDate}
@@ -580,6 +583,7 @@ export function ProjectProjectionPanel({
               project={project}
               showAssigneeInitials={showAssigneeInitials}
               metricsBarBase={metricsBarBase}
+              onMetricsBarBaseChange={setMetricsBarBase}
               viewMode="projection"
               projectStartDate={altProjection.timeline.projectStartDate}
               estimatedEndDate={altProjection.timeline.estimatedEndDate}
@@ -694,10 +698,34 @@ type DayGridColumn = {
   isWeekend: boolean;
 };
 
+type ProjectionHistoryPoint = {
+  issueKey: string;
+  eventDate: string;
+  deliveredPoints: number;
+  remainingPoints: number;
+  velocityPointsPerDay: number;
+  estimatedEndDate: string;
+};
+
+type RollingProjectionHistoryPoint = {
+  issueKey: string;
+  eventDate: string;
+  deliveredPoints: number;
+  remainingPoints: number;
+  windowPoints: number;
+  windowDays: number;
+  velocityPointsPerDay: number;
+  estimatedEndDate: string | null;
+};
+
 function startOfLocalDay(ms: number) {
   const date = new Date(ms);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
+}
+
+function endOfLocalDay(ms: number) {
+  return startOfLocalDay(ms) + 86400000 - 1;
 }
 
 function buildDayGrid(startMs: number, endMs: number): DayGridColumn[] {
@@ -706,9 +734,9 @@ function buildDayGrid(startMs: number, endMs: number): DayGridColumn[] {
 
   const columns: DayGridColumn[] = [];
   let cursor = startOfLocalDay(startMs);
-  const lastDay = startOfLocalDay(endMs);
+  const endExclusiveDayStart = startOfLocalDay(endMs);
 
-  while (cursor <= lastDay) {
+  while (cursor < endExclusiveDayStart) {
     const date = new Date(cursor);
     const dayOfWeek = date.getDay();
     columns.push({
@@ -809,6 +837,7 @@ function SprintGanttChart({
   project,
   showAssigneeInitials = false,
   metricsBarBase = "tickets",
+  onMetricsBarBaseChange,
   viewMode = "projection",
   projectStartDate,
   estimatedEndDate,
@@ -825,6 +854,7 @@ function SprintGanttChart({
   project: JiraProject;
   showAssigneeInitials?: boolean;
   metricsBarBase?: "tickets" | "storyPoints";
+  onMetricsBarBaseChange?: (value: "tickets" | "storyPoints") => void;
   viewMode?: "projection" | "flow";
   projectStartDate: string;
   estimatedEndDate: string;
@@ -832,6 +862,11 @@ function SprintGanttChart({
   endMs: number;
 }) {
   const workloadLabel = unit === "storyPoints" ? "pts" : "tk";
+  const [projectionChartMode, setProjectionChartMode] = useState<"normal" | "inverted">(
+    "normal",
+  );
+  const [rollingWindowDays, setRollingWindowDays] = useState(14);
+  const [yAxisWindowDays, setYAxisWindowDays] = useState(20);
   const velocityLabel =
     unit === "storyPoints"
       ? `${formatRate(velocityPerDay)} pts/dia`
@@ -844,18 +879,15 @@ function SprintGanttChart({
   );
   const yearTicks = useMemo(() => buildYearTicks(startMs, endMs), [startMs, endMs]);
   const dayGrid = useMemo(() => buildDayGrid(startMs, endMs), [startMs, endMs]);
-  const dayLabelStep = useMemo(() => {
-    if (dayGrid.length <= 45) return 1;
-    if (dayGrid.length <= 90) return 2;
-    if (dayGrid.length <= 180) return 5;
-    return 10;
-  }, [dayGrid.length]);
   const FLOW_BLOCK_HEIGHT = 12;
   const FLOW_BLOCK_GAP = 3;
   const FLOW_GROUP_GAP = 5;
   const FLOW_PADDING_Y = 6;
   const DEFAULT_ROW_HEIGHT = 40;
-  const PROJECTION_ROW_WITH_LABEL_HEIGHT = 62;
+  const PROJECTION_ROW_HEIGHT = 58;
+  const TIMELINE_HEADER_HEIGHT = 40;
+  const PROJECTION_HISTORY_ROW_HEIGHT = 240;
+  const HISTORY_CHART_MARGIN = { top: 0, right: 0, bottom: 0, left: 0 };
   const METRICS_HEADER_HEIGHT = 16;
   const METRICS_BAR_MAX_HEIGHT = 104;
   const METRICS_BAR_GAP = 4;
@@ -1062,6 +1094,332 @@ function SprintGanttChart({
     return [...unique.values()];
   }, [issuesBySprint, sprints]);
 
+  const projectionHistory = useMemo<ProjectionHistoryPoint[]>(() => {
+    const totalPoints = allSprintIssues.reduce(
+      (sum, issue) => sum + Math.max(issue.storyPoints ?? 0, 0),
+      0,
+    );
+    const completed = allSprintIssues
+      .filter((issue) => issue.resolutionDate)
+      .map((issue) => ({
+        issue,
+        resolutionDate: issue.resolutionDate as string,
+        resolutionMs: dateToMs(issue.resolutionDate as string),
+        points: Math.max(issue.storyPoints ?? 0, 0),
+      }))
+      .sort((a, b) => a.resolutionMs - b.resolutionMs);
+
+    const projectStartMs = startOfLocalDay(dateToMs(projectStartDate));
+    let deliveredPoints = 0;
+    const points: ProjectionHistoryPoint[] = [];
+
+    for (const completedEvent of completed) {
+      deliveredPoints += completedEvent.points;
+
+      const eventMs = completedEvent.resolutionMs;
+      const elapsedDays = Math.max(
+        1,
+        (eventMs - projectStartMs) / (1000 * 60 * 60 * 24),
+      );
+      const velocity = deliveredPoints / elapsedDays;
+      if (!Number.isFinite(velocity) || velocity <= 0) continue;
+
+      const remainingPoints = Math.max(0, totalPoints - deliveredPoints);
+      const remainingDays = remainingPoints / velocity;
+      const estimatedEndDate = new Date(
+        eventMs + remainingDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      points.push({
+        issueKey: completedEvent.issue.key,
+        eventDate: completedEvent.resolutionDate,
+        deliveredPoints,
+        remainingPoints,
+        velocityPointsPerDay: velocity,
+        estimatedEndDate,
+      });
+    }
+
+    return points;
+  }, [allSprintIssues, projectStartDate]);
+
+  const rollingProjectionHistory = useMemo<RollingProjectionHistoryPoint[]>(() => {
+    if (projectionHistory.length === 0) return [];
+    const windowDays = Math.max(1, Math.min(180, Math.round(rollingWindowDays)));
+    const dayMs = 24 * 60 * 60 * 1000;
+    const projectStartMs = startOfLocalDay(dateToMs(projectStartDate));
+    const minRollingEventMs = projectStartMs + windowDays * dayMs;
+    const events = projectionHistory.map((point, index) => {
+      const previous = projectionHistory[index - 1];
+      return {
+        issueKey: point.issueKey,
+        eventDate: point.eventDate,
+        eventMs: dateToMs(point.eventDate),
+        deliveredPoints: point.deliveredPoints,
+        remainingPoints: point.remainingPoints,
+        pointsDelta: previous
+          ? Math.max(0, point.deliveredPoints - previous.deliveredPoints)
+          : Math.max(0, point.deliveredPoints),
+      };
+    });
+
+    return events.map((event) => {
+      const windowStartMs = event.eventMs - windowDays * dayMs;
+      const windowPoints = events
+        .filter(
+          (candidate) =>
+            candidate.eventMs > windowStartMs && candidate.eventMs <= event.eventMs,
+        )
+        .reduce((sum, candidate) => sum + candidate.pointsDelta, 0);
+      const velocity = windowPoints / windowDays;
+      const hasCompleteWindow = event.eventMs >= minRollingEventMs;
+      const remainingDays =
+        hasCompleteWindow && velocity > 0
+          ? event.remainingPoints / velocity
+          : Infinity;
+      const estimatedEndDate =
+        hasCompleteWindow && velocity > 0
+          ? new Date(event.eventMs + remainingDays * dayMs).toISOString()
+          : null;
+
+      return {
+        issueKey: event.issueKey,
+        eventDate: event.eventDate,
+        deliveredPoints: event.deliveredPoints,
+        remainingPoints: event.remainingPoints,
+        windowPoints,
+        windowDays,
+        velocityPointsPerDay: velocity,
+        estimatedEndDate,
+      };
+    });
+  }, [projectionHistory, rollingWindowDays, projectStartDate]);
+
+  const projectionHistoryRange = useMemo(() => {
+    if (projectionHistory.length === 0 && rollingProjectionHistory.length === 0) {
+      return null;
+    }
+    const start = startOfLocalDay(dateToMs(projectStartDate));
+    const rollingEstimatedMs = rollingProjectionHistory
+      .map((point) =>
+        point.estimatedEndDate ? dateToMs(point.estimatedEndDate) : null,
+      )
+      .filter((value): value is number => value !== null);
+    const maxEstimatedEndMs = Math.max(
+      ...projectionHistory.map((point) => dateToMs(point.estimatedEndDate)),
+      ...(rollingEstimatedMs.length > 0 ? rollingEstimatedMs : [endMs]),
+      endMs,
+    );
+    const end = endOfLocalDay(maxEstimatedEndMs);
+    if (end <= start) return null;
+    return { startMs: start, endMs: end };
+  }, [endMs, projectStartDate, projectionHistory, rollingProjectionHistory]);
+
+  const projectionHistoryChartData = useMemo(
+    () =>
+      projectionHistory.map((point, index) => ({
+        ...point,
+        eventMs: dateToMs(point.eventDate),
+        cumulativeEstimatedEndMs: dateToMs(point.estimatedEndDate),
+        rollingEstimatedEndMs: rollingProjectionHistory[index]?.estimatedEndDate
+          ? dateToMs(rollingProjectionHistory[index]!.estimatedEndDate as string)
+          : null,
+        rollingVelocityPointsPerDay:
+          rollingProjectionHistory[index]?.velocityPointsPerDay ?? null,
+        rollingWindowPoints: rollingProjectionHistory[index]?.windowPoints ?? null,
+      })),
+    [projectionHistory, rollingProjectionHistory],
+  );
+
+  const inverseRollingScatterData = useMemo(
+    () =>
+      projectionHistoryChartData
+        .filter((point) => point.rollingEstimatedEndMs !== null)
+        .map((point) => ({
+          x: point.rollingEstimatedEndMs as number,
+          y: point.eventMs,
+          issueKey: point.issueKey,
+          eventDate: point.eventDate,
+          rollingEstimatedEndMs: point.rollingEstimatedEndMs,
+          rollingVelocityPointsPerDay: point.rollingVelocityPointsPerDay,
+          rollingWindowPoints: point.rollingWindowPoints,
+        })),
+    [projectionHistoryChartData],
+  );
+
+  const inverseCumulativeScatterData = useMemo(
+    () =>
+      projectionHistoryChartData.map((point) => ({
+        x: point.cumulativeEstimatedEndMs,
+        y: point.eventMs,
+        issueKey: point.issueKey,
+        eventDate: point.eventDate,
+        cumulativeEstimatedEndMs: point.cumulativeEstimatedEndMs,
+        velocityPointsPerDay: point.velocityPointsPerDay,
+      })),
+    [projectionHistoryChartData],
+  );
+
+  const inverseYAxisDomain = useMemo<[number, number]>(() => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const windowDays = Math.max(1, Math.min(180, Math.round(yAxisWindowDays)));
+    const upperBound = startOfLocalDay(dateToMs(nowIso));
+    const lowerBound = upperBound - Math.max(0, windowDays - 1) * dayMs;
+    return [lowerBound, upperBound];
+  }, [nowIso, yAxisWindowDays]);
+
+  const inverseYAxisTicks = useMemo(() => {
+    const [lowerBound, upperBound] = inverseYAxisDomain;
+    const ticks: number[] = [];
+    let cursor = startOfLocalDay(lowerBound);
+    const lastDay = startOfLocalDay(upperBound);
+    while (cursor <= lastDay) {
+      ticks.push(cursor);
+      cursor += 86400000;
+    }
+    return ticks;
+  }, [inverseYAxisDomain]);
+
+  const latestCumulativePoint = useMemo(() => {
+    if (projectionHistoryChartData.length === 0) return null;
+    return projectionHistoryChartData[projectionHistoryChartData.length - 1] ?? null;
+  }, [projectionHistoryChartData]);
+
+  const latestRollingPoint = useMemo(() => {
+    for (let index = projectionHistoryChartData.length - 1; index >= 0; index -= 1) {
+      const point = projectionHistoryChartData[index];
+      if (point?.rollingEstimatedEndMs !== null) {
+        return point;
+      }
+    }
+    return null;
+  }, [projectionHistoryChartData]);
+
+  const yAxisDomain = useMemo<[number, number] | null>(() => {
+    if (projectionHistoryChartData.length === 0) return null;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const windowDays = Math.max(1, Math.min(180, Math.round(yAxisWindowDays)));
+    const values = projectionHistoryChartData.flatMap((point) => [
+      point.cumulativeEstimatedEndMs,
+      ...(point.rollingEstimatedEndMs !== null ? [point.rollingEstimatedEndMs] : []),
+    ]);
+
+    if (values.length === 0) return null;
+    const minMs = Math.min(...values);
+    const lowerBound = startOfLocalDay(minMs);
+    const upperBound = endOfLocalDay(
+      lowerBound + Math.max(0, windowDays - 1) * dayMs,
+    );
+    if (upperBound <= lowerBound) return [lowerBound, lowerBound + dayMs];
+    return [lowerBound, upperBound];
+  }, [projectionHistoryChartData, yAxisWindowDays]);
+
+  const yAxisTicks = useMemo(() => {
+    if (!yAxisDomain) return [] as number[];
+    const [minMs, maxMs] = yAxisDomain;
+    const ticks: number[] = [];
+    let cursor = startOfLocalDay(minMs);
+    const lastDay = startOfLocalDay(maxMs);
+    while (cursor <= lastDay) {
+      ticks.push(cursor);
+      cursor += 86400000;
+    }
+    return ticks;
+  }, [yAxisDomain]);
+
+  const latestSeriesBadges = useMemo(() => {
+    if (!yAxisDomain) {
+      return [] as Array<{
+        key: string;
+        label: string;
+        yValue: number;
+      }>;
+    }
+    const badges: Array<{
+      key: string;
+      label: string;
+      yValue: number;
+    }> = [];
+
+    if (latestCumulativePoint) {
+      badges.push({
+        key: "latest-cumulative",
+        label: `${formatDateShortFromMs(latestCumulativePoint.cumulativeEstimatedEndMs)} Acum`,
+        yValue: latestCumulativePoint.cumulativeEstimatedEndMs,
+      });
+    }
+
+    if (latestRollingPoint && latestRollingPoint.rollingEstimatedEndMs !== null) {
+      badges.push({
+        key: "latest-rolling",
+        label: `${formatDateShortFromMs(latestRollingPoint.rollingEstimatedEndMs)} Janela`,
+        yValue: latestRollingPoint.rollingEstimatedEndMs,
+      });
+    }
+
+    return badges;
+  }, [latestCumulativePoint, latestRollingPoint, yAxisDomain]);
+
+  const yAxisGuideItems = useMemo(() => {
+    if (!yAxisDomain || yAxisTicks.length === 0) {
+      return [] as Array<{ value: number; topPx: number }>;
+    }
+    const [minMs, maxMs] = yAxisDomain;
+    const spanMs = Math.max(1, maxMs - minMs);
+    const plotHeight = PROJECTION_HISTORY_ROW_HEIGHT;
+    return yAxisTicks.map((value) => ({
+      value,
+      topPx: Math.max(
+        2,
+        Math.min(
+          PROJECTION_HISTORY_ROW_HEIGHT - 2,
+          (1 - (value - minMs) / spanMs) * Math.max(1, plotHeight),
+        ),
+      ),
+    }));
+  }, [
+    yAxisDomain,
+    yAxisTicks,
+    PROJECTION_HISTORY_ROW_HEIGHT,
+  ]);
+
+  const latestSeriesBadgeItems = useMemo(() => {
+    if (!yAxisDomain || latestSeriesBadges.length === 0) {
+      return [] as Array<{ key: string; label: string; topPx: number }>;
+    }
+    const [minMs, maxMs] = yAxisDomain;
+    const spanMs = Math.max(1, maxMs - minMs);
+    const plotHeight = PROJECTION_HISTORY_ROW_HEIGHT;
+    const mapped = latestSeriesBadges.map((badge) => ({
+      key: badge.key,
+      label: badge.label,
+      topPx: Math.max(
+        6,
+        Math.min(
+          PROJECTION_HISTORY_ROW_HEIGHT - 6,
+          (1 - (badge.yValue - minMs) / spanMs) * Math.max(1, plotHeight),
+        ),
+      ),
+    }));
+
+    if (mapped.length === 2) {
+      const sorted = [...mapped].sort((a, b) => a.topPx - b.topPx);
+      if (Math.abs(sorted[1]!.topPx - sorted[0]!.topPx) < 14) {
+        sorted[1]!.topPx = Math.min(
+          PROJECTION_HISTORY_ROW_HEIGHT - 6,
+          sorted[1]!.topPx + 14,
+        );
+      }
+      return mapped.map((item) => sorted.find((s) => s.key === item.key) ?? item);
+    }
+
+    return mapped;
+  }, [
+    yAxisDomain,
+    latestSeriesBadges,
+    PROJECTION_HISTORY_ROW_HEIGHT,
+  ]);
+
   const dailyTicketMetrics = useMemo(() => {
     if (dayGrid.length === 0) return [];
     const todayStartMs = startOfLocalDay(dateToMs(nowIso));
@@ -1173,9 +1531,7 @@ function SprintGanttChart({
   const getSprintRowHeight = useCallback(
     (sprint: SprintProjection) => {
       if (viewMode !== "flow") {
-        return sprintLabelByNumber?.get(sprint.sprint)
-          ? PROJECTION_ROW_WITH_LABEL_HEIGHT
-          : DEFAULT_ROW_HEIGHT;
+        return PROJECTION_ROW_HEIGHT;
       }
       const flowCount = buildFlowBlocks(sprint).length;
       const plannedCount = (plannedCascadeBySprint.get(sprint.sprint) ?? [])
@@ -1188,7 +1544,7 @@ function SprintGanttChart({
         (flowCount > 0 && plannedCount > 0 ? FLOW_GROUP_GAP : 0);
       return Math.max(DEFAULT_ROW_HEIGHT, stackHeight + FLOW_PADDING_Y * 2);
     },
-    [buildFlowBlocks, plannedCascadeBySprint, sprintLabelByNumber, viewMode],
+    [buildFlowBlocks, plannedCascadeBySprint, viewMode],
   );
 
   return (
@@ -1201,29 +1557,36 @@ function SprintGanttChart({
           }}
         >
           <div className="relative z-10 flex h-full flex-col">
-            <span className="flex h-10 items-center">Sprint</span>
+            <span
+              className="flex items-center border-b border-zinc-300 text-[11px] font-bold text-zinc-600"
+              style={{ height: `${TIMELINE_HEADER_HEIGHT}px` }}
+            >
+              Sprint
+            </span>
 
-            {sprints.map((sprint) => (
+            {sprints.map((sprint, index) => (
               <div
                 key={`label-${sprint.sprint}`}
-                className="flex flex-col justify-center pr-1"
+                className={`flex h-full flex-col justify-center gap-1 pr-1 ${
+                  index < sprints.length - 1 ? "border-b border-zinc-200/80" : ""
+                }`}
                 style={{ height: `${getSprintRowHeight(sprint)}px` }}
               >
-                <p className="text-sm font-black text-zinc-900">
-                  S{sprint.sprint}
+                <p className="truncate text-[11px] font-black leading-tight text-zinc-900">
+                  S{sprint.sprint}{" "}
+                  <span className="text-[9px] font-medium text-zinc-500">
+                    {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
+                    {workloadLabel} / {formatDays(sprint.projectedDurationDays)}d
+                  </span>
                 </p>
                 {sprintLabelByNumber?.get(sprint.sprint) ? (
                   <p
-                    className="mt-0.5 rounded-md border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold leading-tight whitespace-normal break-words text-zinc-700"
+                    className="truncate rounded-md border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold leading-tight text-zinc-700"
                     title={sprintLabelByNumber.get(sprint.sprint)}
                   >
                     {sprintLabelByNumber.get(sprint.sprint)}
                   </p>
                 ) : null}
-                <p className="text-[10px] font-medium text-zinc-500">
-                  {unit === "storyPoints" ? sprint.totalPoints : sprint.total}{" "}
-                  {workloadLabel} · {formatDays(sprint.projectedDurationDays)}d
-                </p>
               </div>
             ))}
             <div
@@ -1262,6 +1625,18 @@ function SprintGanttChart({
                 </p>
               </div>
             </div>
+            <div
+              className="border-t border-zinc-200/80 pr-1"
+              style={{ height: `${PROJECTION_HISTORY_ROW_HEIGHT}px` }}
+            >
+              <div className="flex h-full flex-col justify-center text-right text-[8px] leading-tight text-zinc-500">
+                <p className="text-[10px] font-black uppercase tracking-wide text-zinc-700">
+                  Proj. fim
+                </p>
+                <p className="mt-1">Acumulada + janela móvel</p>
+                <p>por ticket concluído</p>
+              </div>
+            </div>
           </div>
 
           <div className="relative">
@@ -1279,39 +1654,42 @@ function SprintGanttChart({
               Hoje
             </span>
             <div className="relative flex h-full flex-col">
-              <div className="relative h-[64px] shrink-0 border-b border-zinc-300 bg-white/80 pb-1 backdrop-blur-[1px]">
-                <div className="absolute inset-x-0 top-0 h-4 overflow-hidden border-b border-zinc-200/80">
+              <div
+                className="relative shrink-0 overflow-hidden rounded-md border border-zinc-200/90 bg-white/50"
+                style={{ height: `${TIMELINE_HEADER_HEIGHT}px` }}
+              >
+                <DayGridBackground days={dayGrid} />
+                <div className="absolute inset-x-0 top-0 h-3 overflow-hidden bg-white/35">
                   {yearTicks.map((tick) => (
                     <div
                       key={`year-${tick.key}`}
-                      className="absolute bottom-0 top-0 border-l border-zinc-300/60 px-1 text-[10px] font-bold leading-4 text-zinc-700"
+                      className="absolute bottom-0 top-0 border-l border-zinc-300/60 px-1 text-[9px] font-bold leading-3 text-zinc-700"
                       style={{ left: `${tick.leftPct}%`, width: `${tick.widthPct}%` }}
                     >
                       {tick.label}
                     </div>
                   ))}
                 </div>
-                <div className="absolute inset-x-0 top-4 h-4 overflow-hidden border-b border-zinc-200/80">
+                <div className="absolute inset-x-0 top-3 h-3 overflow-hidden bg-white/30">
                   {monthTicks.map((tick) => (
                     <div
                       key={`month-${tick.key}`}
-                      className="absolute bottom-0 top-0 border-l border-zinc-300/50 px-1 text-[10px] font-semibold leading-4 text-zinc-600"
+                      className="absolute bottom-0 top-0 border-l border-zinc-300/50 px-1 text-[9px] font-semibold leading-3 text-zinc-600"
                       style={{ left: `${tick.leftPct}%`, width: `${tick.widthPct}%` }}
                     >
                       {tick.label}
                     </div>
                   ))}
                 </div>
-                <div className="absolute inset-x-0 top-8 h-4 overflow-hidden">
-                  {dayGrid.map((day, index) => {
-                    if (index % dayLabelStep !== 0) return null;
+                <div className="absolute inset-x-0 top-6 h-3 overflow-hidden bg-white/25">
+                  {dayGrid.map((day) => {
                     return (
                       <span
                         key={`day-label-${day.key}`}
-                        className="absolute -translate-x-1/2 whitespace-nowrap text-[9px] font-medium text-zinc-500"
+                        className="absolute -translate-x-1/2 whitespace-nowrap text-[8px] font-medium text-zinc-500"
                         style={{
                           left: `${day.leftPct + day.widthPct / 2}%`,
-                          top: "1px",
+                          top: "0px",
                         }}
                       >
                         {new Date(day.dayStartMs).getDate()}
@@ -1319,12 +1697,6 @@ function SprintGanttChart({
                     );
                   })}
                 </div>
-                <span className="absolute bottom-0 left-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
-                  {formatDateShort(projectStartDate)}
-                </span>
-                <span className="absolute bottom-0 right-0 whitespace-nowrap text-[10px] font-bold text-zinc-700">
-                  {formatDateShort(estimatedEndDate)}
-                </span>
               </div>
 
               {sprints.map((sprint, index) => {
@@ -1505,6 +1877,35 @@ function SprintGanttChart({
                 className="relative z-10 rounded-md border border-zinc-200/80 bg-white/20"
                 style={{ height: `${METRICS_ROW_HEIGHT}px` }}
               >
+                {onMetricsBarBaseChange ? (
+                  <div className="absolute right-2 top-1 z-20 inline-flex items-center overflow-hidden rounded-md border border-zinc-300 bg-white text-[10px] font-semibold text-zinc-700 shadow-sm">
+                    <span className="border-r border-zinc-300 px-2 py-1 text-zinc-500">
+                      Barras
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onMetricsBarBaseChange("tickets")}
+                      className={`px-2 py-1 ${
+                        metricsBarBase === "tickets"
+                          ? "bg-zinc-900 text-white"
+                          : "hover:bg-zinc-100"
+                      }`}
+                    >
+                      Tickets
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMetricsBarBaseChange("storyPoints")}
+                      className={`border-l border-zinc-300 px-2 py-1 ${
+                        metricsBarBase === "storyPoints"
+                          ? "bg-zinc-900 text-white"
+                          : "hover:bg-zinc-100"
+                      }`}
+                    >
+                      Story points
+                    </button>
+                  </div>
+                ) : null}
                 {dailyTicketMetrics.map((metric, metricIndex) => {
                   const barCreatedBase =
                     metricsBarBase === "tickets"
@@ -1728,6 +2129,394 @@ function SprintGanttChart({
                     </div>
                   );
                 })}
+              </div>
+              <div
+                className="relative z-10 mt-1 overflow-visible rounded-md border border-zinc-200/80 bg-white/25"
+                style={{ height: `${PROJECTION_HISTORY_ROW_HEIGHT}px` }}
+              >
+                <div className="absolute right-1 top-1 z-20 flex items-center gap-1 rounded border border-zinc-200 bg-white/90 px-1.5 py-0.5 text-[8px] text-zinc-600 shadow-sm">
+                  <span className="font-semibold text-zinc-700">Janela</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={rollingWindowDays}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      setRollingWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
+                    }}
+                    className="w-9 rounded border border-zinc-300 px-1 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
+                  />
+                  <span>d</span>
+                </div>
+                <div className="absolute right-1 top-6 z-20 flex items-center gap-1 rounded border border-zinc-200 bg-white/90 px-1.5 py-0.5 text-[8px] text-zinc-600 shadow-sm">
+                  <span className="font-semibold text-zinc-700">Eixo Y</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={yAxisWindowDays}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      setYAxisWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
+                    }}
+                    className="w-9 rounded border border-zinc-300 px-1 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
+                  />
+                  <span>d</span>
+                </div>
+                <div className="absolute right-1 top-11 z-20 inline-flex items-center overflow-hidden rounded border border-zinc-200 bg-white/90 text-[8px] font-semibold text-zinc-700 shadow-sm">
+                  <span className="border-r border-zinc-200 px-1.5 py-0.5 text-zinc-500">
+                    Visão
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setProjectionChartMode("normal")}
+                    className={`px-1.5 py-0.5 ${
+                      projectionChartMode === "normal"
+                        ? "bg-zinc-900 text-white"
+                        : "hover:bg-zinc-100"
+                    }`}
+                  >
+                    Padrão
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectionChartMode("inverted")}
+                    className={`border-l border-zinc-200 px-1.5 py-0.5 ${
+                      projectionChartMode === "inverted"
+                        ? "bg-zinc-900 text-white"
+                        : "hover:bg-zinc-100"
+                    }`}
+                  >
+                    Invertida
+                  </button>
+                </div>
+                <div className="pointer-events-none absolute left-1 top-1 z-20 flex items-center gap-2 text-[8px]">
+                  <span className="inline-flex items-center gap-1 font-semibold text-violet-700">
+                    <span className="h-1 w-2 rounded-sm bg-violet-600" />
+                    Acumulada
+                  </span>
+                  <span className="inline-flex items-center gap-1 font-semibold text-sky-700">
+                    <span className="h-1 w-2 rounded-sm bg-sky-600" />
+                    Janela móvel
+                  </span>
+                  <span className="inline-flex items-center gap-1 font-semibold text-zinc-500">
+                    <span className="h-1 w-2 rounded-sm border border-zinc-400" />
+                    {projectionChartMode === "inverted"
+                      ? "Y: Hoje -> Hoje-Y"
+                      : "Série padrão"}
+                  </span>
+                </div>
+                {projectionHistoryRange && projectionHistoryChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={
+                        projectionChartMode === "normal"
+                          ? projectionHistoryChartData
+                          : inverseCumulativeScatterData
+                      }
+                      margin={HISTORY_CHART_MARGIN}
+                    >
+                      <CartesianGrid
+                        stroke="#d4d4d8"
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        horizontal={false}
+                      />
+                      <XAxis
+                        type="number"
+                        dataKey={projectionChartMode === "normal" ? "eventMs" : "x"}
+                        domain={[startMs, endMs]}
+                        padding={{ left: 0, right: 0 }}
+                        allowDataOverflow
+                        hide
+                      />
+                      <YAxis
+                        yAxisId="main"
+                        type="number"
+                        dataKey={
+                          projectionChartMode === "normal"
+                            ? "cumulativeEstimatedEndMs"
+                            : "y"
+                        }
+                        domain={
+                          projectionChartMode === "normal"
+                            ? yAxisDomain ?? [
+                                projectionHistoryRange.startMs,
+                                projectionHistoryRange.endMs,
+                              ]
+                            : inverseYAxisDomain
+                        }
+                        allowDataOverflow
+                        ticks={
+                          projectionChartMode === "normal"
+                            ? yAxisTicks
+                            : inverseYAxisTicks
+                        }
+                        interval={0}
+                        hide
+                        axisLine={false}
+                        tickLine={false}
+                        orientation="right"
+                        mirror
+                        tickMargin={0}
+                        width={1}
+                      />
+                      <Tooltip
+                        cursor={{ stroke: "#a1a1aa", strokeDasharray: "4 4" }}
+                        wrapperStyle={{ zIndex: 80, pointerEvents: "none" }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload || payload.length === 0) {
+                            return null;
+                          }
+                          const item = payload[0]?.payload as
+                            | (ProjectionHistoryPoint & {
+                                eventMs: number;
+                                cumulativeEstimatedEndMs: number;
+                                rollingEstimatedEndMs: number | null;
+                                rollingVelocityPointsPerDay: number | null;
+                                rollingWindowPoints: number | null;
+                                x?: number;
+                                y?: number;
+                                estimatedEndDate?: string;
+                                eventDate?: string;
+                              })
+                            | undefined;
+                          if (!item) return null;
+
+                          const safeDateFromString = (value?: string) => {
+                            if (!value) return null;
+                            const time = new Date(value).getTime();
+                            if (!Number.isFinite(time)) return null;
+                            return formatDateShort(value);
+                          };
+                          const safeDateFromMs = (value?: number | null) => {
+                            if (value === null || value === undefined) return null;
+                            if (!Number.isFinite(value)) return null;
+                            return formatDateShortFromMs(value);
+                          };
+
+                          const cumulativeEntry = payload.find(
+                            (entry) => entry.dataKey === "cumulativeEstimatedEndMs",
+                          );
+                          const rollingEntry = payload.find(
+                            (entry) => entry.dataKey === "rollingEstimatedEndMs",
+                          );
+                          const cumulativeColor =
+                            typeof cumulativeEntry?.color === "string"
+                              ? cumulativeEntry.color
+                              : "#7c3aed";
+                          const rollingColor =
+                            typeof rollingEntry?.color === "string"
+                              ? rollingEntry.color
+                              : "#0284c7";
+
+                          const conclusionLabel =
+                            safeDateFromString(item.eventDate) ??
+                            safeDateFromMs(
+                              typeof item.eventMs === "number"
+                                ? item.eventMs
+                                : typeof item.y === "number"
+                                  ? item.y
+                                  : null,
+                            ) ??
+                            "—";
+                          const cumulativeEndLabel =
+                            safeDateFromMs(
+                              typeof item.cumulativeEstimatedEndMs === "number"
+                                ? item.cumulativeEstimatedEndMs
+                                : typeof item.x === "number"
+                                  ? item.x
+                                  : null,
+                            ) ??
+                            safeDateFromString(item.estimatedEndDate) ??
+                            "—";
+                          const rollingEndLabel =
+                            safeDateFromMs(item.rollingEstimatedEndMs) ??
+                            `aguarde ${rollingWindowDays}d`;
+                          const cumulativeVelocityLabel =
+                            typeof item.velocityPointsPerDay === "number" &&
+                            Number.isFinite(item.velocityPointsPerDay)
+                              ? `${formatRate(item.velocityPointsPerDay)} pts/dia`
+                              : "—";
+                          const rollingVelocityLabel =
+                            typeof item.rollingVelocityPointsPerDay === "number" &&
+                            Number.isFinite(item.rollingVelocityPointsPerDay)
+                              ? `${formatRate(item.rollingVelocityPointsPerDay)} pts/dia`
+                              : "indeterminado";
+                          const rollingWindowPointsLabel =
+                            typeof item.rollingWindowPoints === "number" &&
+                            Number.isFinite(item.rollingWindowPoints)
+                              ? formatRate(item.rollingWindowPoints)
+                              : "—";
+
+                          return (
+                            <div className="min-w-[250px] rounded-lg border border-zinc-200 bg-white p-2 text-[10px] shadow-lg ring-1 ring-black/5">
+                              <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-zinc-100 pb-1">
+                                <p className="font-bold text-zinc-800">{item.issueKey}</p>
+                                <p className="font-medium text-zinc-500">
+                                  {conclusionLabel}
+                                </p>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <div className="rounded border border-violet-100 bg-violet-50/60 px-1.5 py-1">
+                                  <p
+                                    className="mb-0.5 flex items-center gap-1 font-semibold"
+                                    style={{ color: cumulativeColor }}
+                                  >
+                                    <span
+                                      className="inline-block h-1.5 w-2 rounded-sm"
+                                      style={{ backgroundColor: cumulativeColor }}
+                                    />
+                                    Série acumulada
+                                  </p>
+                                  <p className="text-zinc-600">
+                                    Velocidade:{" "}
+                                    <span className="font-semibold text-zinc-700">
+                                      {cumulativeVelocityLabel}
+                                    </span>
+                                  </p>
+                                  <p className="text-zinc-600">
+                                    Fim estimado:{" "}
+                                    <span className="font-semibold text-zinc-700">
+                                      {cumulativeEndLabel}
+                                    </span>
+                                  </p>
+                                </div>
+
+                                <div className="rounded border border-sky-100 bg-sky-50/60 px-1.5 py-1">
+                                  <p
+                                    className="mb-0.5 flex items-center gap-1 font-semibold"
+                                    style={{ color: rollingColor }}
+                                  >
+                                    <span
+                                      className="inline-block h-1.5 w-2 rounded-sm"
+                                      style={{ backgroundColor: rollingColor }}
+                                    />
+                                    Série janela móvel ({rollingWindowDays}d)
+                                  </p>
+                                  <p className="text-zinc-600">
+                                    Velocidade:{" "}
+                                    <span className="font-semibold text-zinc-700">
+                                      {rollingVelocityLabel}
+                                    </span>
+                                  </p>
+                                  <p className="text-zinc-600">
+                                    SP na janela:{" "}
+                                    <span className="font-semibold text-zinc-700">
+                                      {rollingWindowPointsLabel}
+                                    </span>
+                                  </p>
+                                  <p className="text-zinc-600">
+                                    Fim estimado:{" "}
+                                    <span className="font-semibold text-zinc-700">
+                                      {rollingEndLabel}
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      {projectionChartMode === "normal" ? (
+                        <>
+                          <Line
+                            yAxisId="main"
+                            type="monotone"
+                            dataKey="cumulativeEstimatedEndMs"
+                            stroke="#7c3aed"
+                            strokeWidth={2}
+                            dot={{ r: 2.5, fill: "#7c3aed", stroke: "#ffffff", strokeWidth: 1 }}
+                            activeDot={{ r: 4 }}
+                            isAnimationActive={false}
+                          />
+                          <Line
+                            yAxisId="main"
+                            type="monotone"
+                            dataKey="rollingEstimatedEndMs"
+                            stroke="#0284c7"
+                            strokeWidth={2}
+                            dot={{ r: 2.2, fill: "#0284c7", stroke: "#ffffff", strokeWidth: 1 }}
+                            activeDot={{ r: 4 }}
+                            connectNulls={false}
+                            isAnimationActive={false}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Scatter
+                            yAxisId="main"
+                            data={inverseCumulativeScatterData}
+                            line={{ stroke: "#7c3aed", strokeWidth: 2, opacity: 0.8 }}
+                            shape={() => null}
+                            fill="transparent"
+                            legendType="none"
+                            isAnimationActive={false}
+                          />
+                          <Scatter
+                            yAxisId="main"
+                            data={inverseRollingScatterData}
+                            line={{ stroke: "#0284c7", strokeWidth: 2, opacity: 0.8 }}
+                            shape={() => null}
+                            fill="transparent"
+                            legendType="none"
+                            isAnimationActive={false}
+                          />
+                        </>
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center px-2">
+                    <span className="text-[10px] font-medium text-zinc-500">
+                      Sem histórico suficiente de tickets concluídos.
+                    </span>
+                  </div>
+                )}
+                {projectionChartMode === "normal" && yAxisGuideItems.length > 0 ? (
+                  <div className="pointer-events-none absolute inset-0 z-10">
+                    {yAxisGuideItems.map((item) => (
+                      <div
+                        key={`y-guide-line-${item.value}`}
+                        className="absolute left-0 right-0 border-t border-zinc-300/45"
+                        style={{ top: `${item.topPx}px` }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {projectionChartMode === "normal" && yAxisGuideItems.length > 0 ? (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 z-30"
+                    style={{ left: `${todayPct}%`, width: 0 }}
+                  >
+                    {yAxisGuideItems.map((item) => (
+                      <span
+                        key={`y-guide-${item.value}`}
+                        className="absolute left-1 -translate-y-1/2 whitespace-nowrap text-left text-[8px] font-medium text-zinc-600"
+                        style={{ top: `${item.topPx}px` }}
+                      >
+                        {formatDateShortFromMs(item.value)}
+                      </span>
+                    ))}
+                    {latestSeriesBadgeItems.map((badge) => (
+                      <span
+                        key={badge.key}
+                        className={`absolute left-1 -translate-y-1/2 whitespace-nowrap rounded border px-1 py-0.5 text-left text-[8px] font-bold ${
+                          badge.key === "latest-cumulative"
+                            ? "border-violet-300 bg-violet-100 text-violet-800"
+                            : "border-sky-300 bg-sky-100 text-sky-800"
+                        }`}
+                        style={{ top: `${badge.topPx}px` }}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
