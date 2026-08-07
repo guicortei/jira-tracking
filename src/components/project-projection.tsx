@@ -1605,6 +1605,38 @@ function SprintGanttChart({
                 >
                   Tickets
                 </p>
+                {onMetricsBarBaseChange ? (
+                  <div
+                    className="flex flex-col items-stretch justify-start gap-1 pt-1"
+                    style={{ gridRow: "2" }}
+                  >
+                    <span className="text-[8px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Barras
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onMetricsBarBaseChange("tickets")}
+                      className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
+                        metricsBarBase === "tickets"
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                      }`}
+                    >
+                      Tickets
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMetricsBarBaseChange("storyPoints")}
+                      className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
+                        metricsBarBase === "storyPoints"
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                      }`}
+                    >
+                      Story points
+                    </button>
+                  </div>
+                ) : null}
                 <p style={{ gridRow: "4", lineHeight: `${METRICS_VALUE_ROW_HEIGHT}px` }}>
                   Criados
                 </p>
@@ -1629,12 +1661,73 @@ function SprintGanttChart({
               className="border-t border-zinc-200/80 pr-1"
               style={{ height: `${PROJECTION_HISTORY_ROW_HEIGHT}px` }}
             >
-              <div className="flex h-full flex-col justify-center text-right text-[8px] leading-tight text-zinc-500">
-                <p className="text-[10px] font-black uppercase tracking-wide text-zinc-700">
-                  Proj. fim
-                </p>
-                <p className="mt-1">Acumulada + janela móvel</p>
-                <p>por ticket concluído</p>
+              <div className="flex h-full flex-col items-stretch justify-start gap-1.5 pt-1 text-right text-[8px] leading-tight text-zinc-500">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wide text-zinc-700">
+                    Proj. fim
+                  </p>
+                  <p className="mt-0.5">Acumulada + janela móvel</p>
+                  <p>por ticket concluído</p>
+                </div>
+                <label className="flex items-center justify-end gap-1 rounded border border-zinc-200 bg-white px-1 py-0.5 text-zinc-600">
+                  <span className="font-semibold text-zinc-700">Janela</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={rollingWindowDays}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      setRollingWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
+                    }}
+                    className="w-8 rounded border border-zinc-300 px-0.5 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
+                  />
+                  <span>d</span>
+                </label>
+                <label className="flex items-center justify-end gap-1 rounded border border-zinc-200 bg-white px-1 py-0.5 text-zinc-600">
+                  <span className="font-semibold text-zinc-700">Eixo Y</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={yAxisWindowDays}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isFinite(parsed)) return;
+                      setYAxisWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
+                    }}
+                    className="w-8 rounded border border-zinc-300 px-0.5 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
+                  />
+                  <span>d</span>
+                </label>
+                <div className="flex flex-col items-stretch gap-1">
+                  <span className="text-[8px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Visão
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setProjectionChartMode("normal")}
+                    className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
+                      projectionChartMode === "normal"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                    }`}
+                  >
+                    Padrão
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectionChartMode("inverted")}
+                    className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${
+                      projectionChartMode === "inverted"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                    }`}
+                  >
+                    Invertida
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1877,35 +1970,6 @@ function SprintGanttChart({
                 className="relative z-10 rounded-md border border-zinc-200/80 bg-white/20"
                 style={{ height: `${METRICS_ROW_HEIGHT}px` }}
               >
-                {onMetricsBarBaseChange ? (
-                  <div className="absolute right-2 top-1 z-20 inline-flex items-center overflow-hidden rounded-md border border-zinc-300 bg-white text-[10px] font-semibold text-zinc-700 shadow-sm">
-                    <span className="border-r border-zinc-300 px-2 py-1 text-zinc-500">
-                      Barras
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onMetricsBarBaseChange("tickets")}
-                      className={`px-2 py-1 ${
-                        metricsBarBase === "tickets"
-                          ? "bg-zinc-900 text-white"
-                          : "hover:bg-zinc-100"
-                      }`}
-                    >
-                      Tickets
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onMetricsBarBaseChange("storyPoints")}
-                      className={`border-l border-zinc-300 px-2 py-1 ${
-                        metricsBarBase === "storyPoints"
-                          ? "bg-zinc-900 text-white"
-                          : "hover:bg-zinc-100"
-                      }`}
-                    >
-                      Story points
-                    </button>
-                  </div>
-                ) : null}
                 {dailyTicketMetrics.map((metric, metricIndex) => {
                   const barCreatedBase =
                     metricsBarBase === "tickets"
@@ -2134,65 +2198,6 @@ function SprintGanttChart({
                 className="relative z-10 mt-1 overflow-visible rounded-md border border-zinc-200/80 bg-white/25"
                 style={{ height: `${PROJECTION_HISTORY_ROW_HEIGHT}px` }}
               >
-                <div className="absolute right-1 top-1 z-20 flex items-center gap-1 rounded border border-zinc-200 bg-white/90 px-1.5 py-0.5 text-[8px] text-zinc-600 shadow-sm">
-                  <span className="font-semibold text-zinc-700">Janela</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={180}
-                    value={rollingWindowDays}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (!Number.isFinite(parsed)) return;
-                      setRollingWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
-                    }}
-                    className="w-9 rounded border border-zinc-300 px-1 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
-                  />
-                  <span>d</span>
-                </div>
-                <div className="absolute right-1 top-6 z-20 flex items-center gap-1 rounded border border-zinc-200 bg-white/90 px-1.5 py-0.5 text-[8px] text-zinc-600 shadow-sm">
-                  <span className="font-semibold text-zinc-700">Eixo Y</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={180}
-                    value={yAxisWindowDays}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (!Number.isFinite(parsed)) return;
-                      setYAxisWindowDays(Math.max(1, Math.min(180, Math.round(parsed))));
-                    }}
-                    className="w-9 rounded border border-zinc-300 px-1 py-0 text-right text-[8px] text-zinc-700 outline-none focus:border-blue-400"
-                  />
-                  <span>d</span>
-                </div>
-                <div className="absolute right-1 top-11 z-20 inline-flex items-center overflow-hidden rounded border border-zinc-200 bg-white/90 text-[8px] font-semibold text-zinc-700 shadow-sm">
-                  <span className="border-r border-zinc-200 px-1.5 py-0.5 text-zinc-500">
-                    Visão
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setProjectionChartMode("normal")}
-                    className={`px-1.5 py-0.5 ${
-                      projectionChartMode === "normal"
-                        ? "bg-zinc-900 text-white"
-                        : "hover:bg-zinc-100"
-                    }`}
-                  >
-                    Padrão
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProjectionChartMode("inverted")}
-                    className={`border-l border-zinc-200 px-1.5 py-0.5 ${
-                      projectionChartMode === "inverted"
-                        ? "bg-zinc-900 text-white"
-                        : "hover:bg-zinc-100"
-                    }`}
-                  >
-                    Invertida
-                  </button>
-                </div>
                 <div className="pointer-events-none absolute left-1 top-1 z-20 flex items-center gap-2 text-[8px]">
                   <span className="inline-flex items-center gap-1 font-semibold text-violet-700">
                     <span className="h-1 w-2 rounded-sm bg-violet-600" />
