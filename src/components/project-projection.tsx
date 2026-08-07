@@ -866,7 +866,7 @@ function SprintGanttChart({
     "normal",
   );
   const [rollingWindowDays, setRollingWindowDays] = useState(14);
-  const [yAxisWindowDays, setYAxisWindowDays] = useState(20);
+  const [yAxisWindowDays, setYAxisWindowDays] = useState(40);
   const velocityLabel =
     unit === "storyPoints"
       ? `${formatRate(velocityPerDay)} pts/dia`
